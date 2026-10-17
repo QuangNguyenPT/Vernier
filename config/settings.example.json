@@ -1,0 +1,27 @@
+{
+  "//": "Example of %LOCALAPPDATA%\Vernier\settings.json. It holds NO secrets: ApiKeyName is the NAME of an environment variable or Windows Credential Manager entry.",
+  "Version": 1,
+  "FirstRunComplete": true,
+  "Theme": "light",
+  "ActiveProviderId": "local",
+  "VerifierProviderId": null,
+  "AllowScreenCapture": false,
+  "AllowMicrophone": false,
+  "AllowSendNotesToRemote": false,
+  "AllowComputerControl": false,
+  "CapturePolicy": "Standard",
+  "ObserveIntervalSeconds": 15,
+  "MaxImageEdge": 1280,
+  "SpeechRate": 1.0,
+  "ReviewIntervalsDays": [1, 3],
+  "RetainSessionsDays": 0,
+  "Learner": { "Level": "undergraduate", "Goals": "pass mechanics", "Pace": "steady", "Assessment": "written exam" },
+  "Providers": [
+    { "Id": "claude-code", "Kind": "claude-code", "DisplayName": "Claude Code (local CLI login)", "Model": "", "SupportsVision": true },
+    { "Id": "anthropic", "Kind": "anthropic", "DisplayName": "Anthropic Claude", "Model": "claude-opus-5-5", "ApiKeyName": "ANTHROPIC_API_KEY", "SupportsVision": true },
+    { "Id": "openai", "Kind": "openai-compatible", "DisplayName": "OpenAI", "BaseUrl": "https://api.openai.com/v1", "Model": "", "ApiKeyName": "OPENAI_API_KEY", "SupportsVision": true, "MaxTokensField": "max_completion_tokens" },
+    { "Id": "gemini", "Kind": "gemini", "DisplayName": "Google Gemini", "BaseUrl": "https://generativelanguage.googleapis.com/v1beta", "Model": "", "ApiKeyName": "GEMINI_API_KEY", "SupportsVision": true },
+    { "Id": "moonshot", "Kind": "openai-compatible", "DisplayName": "Moonshot AI / Kimi", "BaseUrl": "https://api.moonshot.ai/v1", "Model": "", "ApiKeyName": "MOONSHOT_API_KEY", "SupportsVision": false },
+    { "Id": "local", "Kind": "openai-compatible", "DisplayName": "Local server (Ollama / LM Studio)", "BaseUrl": "http://localhost:11434/v1", "Model": "llama3.2", "IsLocal": true, "SupportsVision": false }
+  ]
+}

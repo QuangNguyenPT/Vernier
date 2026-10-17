@@ -1,0 +1,34 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Vernier</AssemblyName>
+    <RootNamespace>Vernier.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\vernier.ico</ApplicationIcon>
+    <Version>0.4.0</Version>
+    <Product>Vernier</Product>
+    <Description>Screen-aware tutor for Windows</Description>
+    <Company>Vernier project</Company>
+    <Copyright>Local build. Not code signed.</Copyright>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks> <!-- only Platform/Native.cs, to hand buffers to the native module -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WpfMath" Version="2.1.0" />
+    <ProjectReference Include="..\Vernier.Core\Vernier.Core.csproj" />
+    <PackageReference Include="System.Speech" Version="10.0.12" />
+    <Resource Include="Assets\vernier.ico" />
+    <Content Include="Assets\vernier.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Built by scripts/build-native.ps1. Optional: every native feature has a managed fallback. -->
+    <Content Include="native\Vernier.Native.dll" Condition="Exists('native\Vernier.Native.dll')" CopyToOutputDirectory="PreserveNewest" Link="Vernier.Native.dll" />
+    <InternalsVisibleTo Include="Vernier.Tests" />
+  </ItemGroup>
+
+</Project>

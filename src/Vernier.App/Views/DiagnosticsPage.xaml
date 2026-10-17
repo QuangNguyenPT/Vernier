@@ -1,0 +1,124 @@
+<UserControl x:Class="Vernier.App.Views.DiagnosticsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+        <StackPanel Margin="0,0,16,24">
+            <TextBlock Style="{StaticResource Title}" Text="Diagnostics"/>
+            <TextBlock x:Name="Environment" Style="{StaticResource Mono}" FontSize="11.5" Foreground="{DynamicResource InkSoft}"/>
+
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="Window capture policy"/>
+                    <TextBlock x:Name="PolicySummary" Style="{StaticResource Body}"/>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="0,6,0,8"
+                               Text="Vernier asks Windows to leave its own windows out of captures with SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE). 'Applied' means Windows accepted the request and reports it back. It is a best-effort content-protection feature, not a guarantee: whether a given meeting or recording tool honours it depends on how that tool captures. It does nothing about cameras, hardware capture or remote-desktop software that ignores it. When it matters, use Hide."/>
+                    <ItemsControl x:Name="PolicyStates">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="230"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="St" Style="{StaticResource Readout}" Text="{Binding Status}" Margin="0,2,0,0"/>
+                                    <TextBlock Grid.Column="1" Style="{StaticResource Body}" Text="{Binding Name}"/>
+                                    <TextBlock Grid.Column="2" Style="{StaticResource Soft}" FontSize="12" Text="{Binding Detail}"/>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Status}" Value="NotRequested">
+                                        <Setter TargetName="St" Property="Text" Value="standard"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Status}" Value="Applied">
+                                        <Setter TargetName="St" Property="Foreground" Value="{DynamicResource Ok}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Status}" Value="Failed">
+                                        <Setter TargetName="St" Property="Foreground" Value="{DynamicResource Err}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Status}" Value="Unsupported">
+                                        <Setter TargetName="St" Property="Foreground" Value="{DynamicResource Warn}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button x:Name="SelfTest" Content="Run capture self-test" Click="OnSelfTest" ToolTip="Briefly shows a small magenta window, captures the screen there with and without exclusion, and reports what came back"/>
+                        <Button Style="{StaticResource Quiet}" Content="Re-apply policy" Click="OnReapply"/>
+                    </StackPanel>
+                    <ItemsControl x:Name="SelfTestResults" Margin="0,10,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="Verdict" Style="{StaticResource Readout}" Text="observed" Margin="0,2,0,0"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Style="{StaticResource Body}" Text="{Binding Path}"/>
+                                        <TextBlock Style="{StaticResource Soft}" FontSize="12">
+                                            <Run Text="expected: "/><Run Text="{Binding Expected, Mode=OneWay}"/><Run Text="   observed: "/><Run Text="{Binding Observed, Mode=OneWay}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Excluded}" Value="True">
+                                        <Setter TargetName="Verdict" Property="Text" Value="as expected"/>
+                                        <Setter TargetName="Verdict" Property="Foreground" Value="{DynamicResource Ok}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Excluded}" Value="False">
+                                        <Setter TargetName="Verdict" Property="Text" Value="not excluded"/>
+                                        <Setter TargetName="Verdict" Property="Foreground" Value="{DynamicResource Err}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="Integrations on this computer"/>
+                    <ItemsControl x:Name="Integrations">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="230"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="St" Style="{StaticResource Readout}" Text="{Binding Missing}" Foreground="{DynamicResource Warn}" Margin="0,2,0,0"/>
+                                    <TextBlock Grid.Column="1" Style="{StaticResource Body}" Text="{Binding Name}"/>
+                                    <TextBlock Grid.Column="2" Style="{StaticResource Soft}" FontSize="12" Text="{Binding Detail}"/>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Available}" Value="True">
+                                        <Setter TargetName="St" Property="Text" Value="available"/>
+                                        <Setter TargetName="St" Property="Foreground" Value="{DynamicResource Ok}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Style="{StaticResource Quiet}" Content="Re-check" Click="OnRecheck" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Section}">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Quiet}" Content="Copy log" Click="OnCopyLog"/>
+                        <TextBlock Style="{StaticResource Heading}" Text="Log"/>
+                    </DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource Soft}" FontSize="12" Margin="0,0,0,8"
+                               Text="Events only. Questions, answers, screen text and images are never written here, and anything shaped like a key is redacted before it is stored."/>
+                    <TextBox x:Name="LogText" IsReadOnly="True" FontFamily="{StaticResource MonoFont}" FontSize="11.5" Height="220" TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="Diagnostic log"/>
+                </DockPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

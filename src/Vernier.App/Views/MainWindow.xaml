@@ -1,0 +1,88 @@
+<Window x:Class="Vernier.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Vernier" Width="1180" Height="780" MinWidth="820" MinHeight="560"
+        Background="{DynamicResource Bg}" Icon="pack://application:,,,/Vernier;component/Assets/vernier.ico"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Ideal">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="52"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="26"/>
+        </Grid.RowDefinitions>
+
+        <!-- Instrument strip: identity on the left; the things that concern privacy are always here, on every page. -->
+        <Border BorderBrush="{DynamicResource Ink}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="20,0,14,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Canvas Width="34" Height="18" Margin="0,0,10,0" VerticalAlignment="Center">
+                        <Rectangle Width="34" Height="2" Fill="{DynamicResource Ink}"/>
+                        <Rectangle Canvas.Left="0" Width="2" Height="9" Fill="{DynamicResource Ink}"/>
+                        <Rectangle Canvas.Left="8" Width="2" Height="6" Fill="{DynamicResource Ink}"/>
+                        <Rectangle Canvas.Left="16" Width="2" Height="9" Fill="{DynamicResource Ink}"/>
+                        <Rectangle Canvas.Left="24" Width="2" Height="6" Fill="{DynamicResource Ink}"/>
+                        <Rectangle Canvas.Left="32" Width="2" Height="9" Fill="{DynamicResource Ink}"/>
+                        <Rectangle Canvas.Left="7" Canvas.Top="15" Width="20" Height="2" Fill="{DynamicResource Accent}"/>
+                        <Rectangle Canvas.Left="7" Canvas.Top="10" Width="2" Height="6" Fill="{DynamicResource Accent}"/>
+                        <Rectangle Canvas.Left="16" Canvas.Top="10" Width="2" Height="6" Fill="{DynamicResource Accent}"/>
+                        <Rectangle Canvas.Left="25" Canvas.Top="10" Width="2" Height="6" Fill="{DynamicResource Accent}"/>
+                    </Canvas>
+                    <TextBlock Text="VERNIER" FontFamily="{StaticResource HeadFont}" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ComboBox x:Name="PolicyBox" Width="220" SelectionChanged="OnPolicyChanged" ToolTip="How Vernier's own windows appear to screen capture and screen sharing"
+                              AutomationProperties.Name="Window capture mode">
+                        <ComboBoxItem Content="Standard window" Tag="Standard"/>
+                        <ComboBoxItem Content="Request capture exclusion" Tag="RequestExclusion"/>
+                        <ComboBoxItem Content="Share-Safe mode" Tag="ShareSafe"/>
+                    </ComboBox>
+                    <Button Content="Hide" Click="OnHideAll" Margin="8,0,0,0" ToolTip="Hide every Vernier window and mark now (Ctrl+Alt+H). The notification-area icon brings it back." AutomationProperties.Name="Hide all Vernier windows"/>
+                    <Button Content="Ask about my screen" Click="OnOpenAsk" Margin="8,0,0,0" ToolTip="Hides this window and opens the ask bar over your work"/>
+                    <Button x:Name="PauseButton" Content="Pause" Click="OnPause" Margin="8,0,0,0" MinWidth="78" ToolTip="Stop capture, the microphone, speech and the current answer (Ctrl+Alt+P)"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="26,0,0,0">
+                    <Ellipse x:Name="Lamp" Width="9" Height="9" Fill="{DynamicResource Rule}" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="ObserveText" Style="{StaticResource Readout}" VerticalAlignment="Center" TextWrapping="NoWrap"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="176"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,1,0">
+                <DockPanel>
+                    <TextBlock x:Name="GoalText" DockPanel.Dock="Bottom" Style="{StaticResource Readout}" Margin="20,0,12,16"/>
+                    <StackPanel x:Name="Rail" Margin="0,16,0,0">
+                        <RadioButton Style="{StaticResource RailItem}" Content="Conversation" Tag="Tutor" GroupName="rail" Checked="OnNavigate" IsChecked="True"/>
+                        <RadioButton x:Name="ReviewNav" Style="{StaticResource RailItem}" Content="Review" Tag="Review" GroupName="rail" Checked="OnNavigate"/>
+                        <RadioButton Style="{StaticResource RailItem}" Content="Library" Tag="Library" GroupName="rail" Checked="OnNavigate"/>
+                        <RadioButton Style="{StaticResource RailItem}" Content="Notes &amp; files" Tag="Files" GroupName="rail" Checked="OnNavigate"/>
+                        <RadioButton Style="{StaticResource RailItem}" Content="Settings" Tag="Settings" GroupName="rail" Checked="OnNavigate" Margin="0,18,0,0"/>
+                        <RadioButton Style="{StaticResource RailItem}" Content="Diagnostics" Tag="Diagnostics" GroupName="rail" Checked="OnNavigate"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+            <Grid Grid.Column="1">
+                <Border x:Name="NoticeBar" Visibility="Collapsed" VerticalAlignment="Top" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Warn}" BorderThickness="0,0,0,2" Padding="20,8" Panel.ZIndex="2">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Quiet}" Content="Dismiss" Click="OnDismissNotice"/>
+                        <TextBlock x:Name="NoticeText" Style="{StaticResource Body}" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
+                <ContentControl x:Name="PageHost" Margin="28,22,24,16" Focusable="False"/>
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="2" BorderBrush="{DynamicResource Rule}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="20,0,14,0">
+                <TextBlock x:Name="ProviderText" DockPanel.Dock="Right" Style="{StaticResource Readout}" VerticalAlignment="Center" TextWrapping="NoWrap"/>
+                <TextBlock x:Name="PolicyText" Style="{StaticResource Readout}" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

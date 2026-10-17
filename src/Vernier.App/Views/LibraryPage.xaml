@@ -1,0 +1,154 @@
+<UserControl x:Class="Vernier.App.Views.LibraryPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Vernier.App.Views">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <TextBlock Style="{StaticResource Title}" Text="Library"/>
+        <Border Grid.Row="1" BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1" Margin="0,8,0,0">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="TabConcepts" Style="{StaticResource SegmentRadio}" Content="CONCEPTS" GroupName="lib" Checked="OnTab" IsChecked="True"/>
+                <RadioButton x:Name="TabFormulas" Style="{StaticResource SegmentRadio}" Content="FORMULAS &amp; EXAMPLES" GroupName="lib" Checked="OnTab"/>
+                <RadioButton x:Name="TabMistakes" Style="{StaticResource SegmentRadio}" Content="MISTAKE JOURNAL" GroupName="lib" Checked="OnTab"/>
+                <RadioButton x:Name="TabSessions" Style="{StaticResource SegmentRadio}" Content="SESSIONS" GroupName="lib" Checked="OnTab"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Concepts: progress is the level reached by demonstrated work, with the reason it is not higher. -->
+        <DockPanel x:Name="ConceptsView" Grid.Row="2" Margin="0,12,0,0">
+            <TextBlock DockPanel.Dock="Top" Style="{StaticResource Soft}" FontSize="12" Margin="0,0,0,8"
+                       Text="Levels move only on demonstrated work: answering, explaining in your own words, a transfer problem, and recalling it later. Saying you understand is not counted."/>
+            <TextBlock x:Name="ConceptsEmpty" DockPanel.Dock="Top" Style="{StaticResource Soft}" Text="No concepts yet. They are added as you work with the tutor." Visibility="Collapsed"/>
+            <ListBox x:Name="Concepts" AutomationProperties.Name="Concepts">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Body}" FontSize="14" Text="{Binding Name}"/>
+                                <TextBlock Style="{StaticResource Readout}" Text="{Binding Subject}"/>
+                                <TextBlock Style="{StaticResource Soft}" FontSize="12" Text="{Binding Mastery.Reason}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <local:LevelScale Level="{Binding Mastery.Level}" Height="14" Width="140" HorizontalAlignment="Left"/>
+                                <TextBlock Style="{StaticResource Readout}" Text="{Binding Mastery.Level}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                            <Button Grid.Column="2" Style="{StaticResource Quiet}" Content="Practise" Click="OnPractise" VerticalAlignment="Center"/>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <ScrollViewer x:Name="FormulasView" Grid.Row="2" Margin="0,12,0,0" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" Focusable="False">
+            <StackPanel>
+                <TextBlock x:Name="FormulasEmpty" Style="{StaticResource Soft}" Text="No formulas yet. When the tutor derives one, it is kept here with where it comes from." Visibility="Collapsed"/>
+                <ItemsControl x:Name="Formulas">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1" Padding="0,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="260"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,16,0">
+                                        <TextBox Style="{StaticResource ReadingBox}" FontSize="18" Text="{Binding Expression, Mode=OneWay}"/>
+                                        <TextBlock Style="{StaticResource Readout}" Text="{Binding Concept}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Style="{StaticResource Body}" Text="{Binding Meaning}"/>
+                                        <TextBlock Style="{StaticResource Soft}" FontSize="12.5" Text="{Binding Derivation}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Style="{StaticResource Readout}" Text="worked examples" Margin="0,22,0,0"/>
+                <ItemsControl x:Name="Examples">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1" Padding="0,10">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Readout}" Text="{Binding Concept}"/>
+                                    <TextBlock Style="{StaticResource Body}" Text="{Binding Problem}" Margin="0,2,0,0"/>
+                                    <TextBox Style="{StaticResource ReadingBox}" FontSize="14.5" Text="{Binding Solution, Mode=OneWay}" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+        <DockPanel x:Name="MistakesView" Grid.Row="2" Margin="0,12,0,0" Visibility="Collapsed">
+            <TextBlock x:Name="MistakesEmpty" DockPanel.Dock="Top" Style="{StaticResource Soft}" Text="No mistakes recorded. When the tutor spots a specific wrong idea, it is logged here until you show it is gone." Visibility="Collapsed"/>
+            <ListBox x:Name="Mistakes" AutomationProperties.Name="Mistake journal">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="92"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="State" Style="{StaticResource Readout}" Text="open" Foreground="{DynamicResource Err}" Margin="0,2,0,0"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Style="{StaticResource Body}" Text="{Binding Description}"/>
+                                <TextBlock Style="{StaticResource Readout}" Text="{Binding Concept}"/>
+                            </StackPanel>
+                            <Button x:Name="Toggle" Grid.Column="2" Style="{StaticResource Quiet}" Content="Mark resolved" Click="OnToggleMistake" VerticalAlignment="Center"/>
+                        </Grid>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding Resolved}" Value="True">
+                                <Setter TargetName="State" Property="Text" Value="resolved"/>
+                                <Setter TargetName="State" Property="Foreground" Value="{DynamicResource Ok}"/>
+                                <Setter TargetName="Toggle" Property="Content" Value="Reopen"/>
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <Grid x:Name="SessionsView" Grid.Row="2" Margin="0,12,0,0" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="4*" MinWidth="240"/>
+                <ColumnDefinition Width="24"/>
+                <ColumnDefinition Width="6*"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel>
+                <TextBox x:Name="Search" DockPanel.Dock="Top" TextChanged="OnSearch" Margin="0,0,0,8" AutomationProperties.Name="Search explanations" ToolTip="Search every saved explanation"/>
+                <TextBlock x:Name="SessionsEmpty" DockPanel.Dock="Top" Style="{StaticResource Soft}" Visibility="Collapsed"/>
+                <ListBox x:Name="Sessions" SelectionChanged="OnSessionSelected" AutomationProperties.Name="Sessions">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Body}" Text="{Binding Title}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                <TextBlock Style="{StaticResource Readout}" Text="{Binding Detail}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+            <DockPanel Grid.Column="2">
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button x:Name="ToVault" Content="Save to vault…" Click="OnSessionToVault" IsEnabled="False"/>
+                    <Button x:Name="DeleteSession" Style="{StaticResource Danger}" Content="Delete session" Click="OnDeleteSession" Margin="8,0,0,0" IsEnabled="False"/>
+                </StackPanel>
+                <Border Style="{StaticResource Panel}">
+                    <TextBox x:Name="SessionText" Style="{StaticResource ReadingBox}" FontSize="14.5" VerticalScrollBarVisibility="Auto" Text="Select a session to read it."/>
+                </Border>
+            </DockPanel>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,27 @@
+bin/
+obj/
+artifacts/
+.vs/
+*.user
+TestResults/
+graphify-out/cache/
+graphify-out/.graphify_*
+# never commit local settings or anything that could hold a key
+settings.json
+.env
+.env.*
+
+# build output and local tooling
+native/obj/
+src/Vernier.App/native/
+.obsidian/
+.claude/settings.local.json
+*.pdb
+*.vcxproj.user
+# the knowledge graph is kept (graph.json, GRAPH_REPORT.md); backups, caches and viewers are not
+graphify-out/20*/
+graphify-out/obsidian/
+graphify-out/graph.html
+graphify-out/cost.json
+graphify-out/manifest.json
+.claude/.index-stale

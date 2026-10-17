@@ -1,0 +1,103 @@
+<UserControl x:Class="Vernier.App.Views.FilesPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Style="{StaticResource Title}" Text="Notes &amp; files"/>
+        <Border Grid.Row="1" BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1" Margin="0,8,0,0">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="TabVault" Style="{StaticResource SegmentRadio}" Content="OBSIDIAN VAULT" GroupName="files" Checked="OnTab" IsChecked="True"/>
+                <RadioButton x:Name="TabWorkspace" Style="{StaticResource SegmentRadio}" Content="WORKSPACE FOLDER" GroupName="files" Checked="OnTab"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Vault -->
+        <DockPanel x:Name="VaultView" Grid.Row="2" Margin="0,12,0,0">
+            <DockPanel DockPanel.Dock="Top">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="Choose vault folder…" Click="OnChooseVault"/>
+                    <Button x:Name="DisconnectVault" Style="{StaticResource Quiet}" Content="Disconnect" Click="OnDisconnectVault"/>
+                </StackPanel>
+                <TextBlock x:Name="VaultPath" Style="{StaticResource Mono}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Top" Style="{StaticResource Soft}" FontSize="12" Margin="0,8,0,0"
+                       Text="Optional. A vault is just a folder of Markdown files; Obsidian does not need to be running. Vernier writes only inside a 'Vernier' subfolder, shows every change before writing it, and appends to existing notes rather than replacing them."/>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,12,0,0">
+                <Button x:Name="WriteConcepts" Content="Write concept notes…" Click="OnWriteConcepts"/>
+                <Button x:Name="WriteMistakes" Content="Add to mistake log…" Click="OnWriteMistakes" Margin="8,0,0,0"/>
+                <Button x:Name="LoadGraph" Content="Load knowledge graph" Click="OnLoadGraph" Margin="8,0,0,0"/>
+                <Button x:Name="GraphifyUpdate" Content="Refresh with graphify" Click="OnGraphifyUpdate" Margin="8,0,0,0" ToolTip="Runs 'graphify update' on the vault folder: re-extracts code files into graphify-out/graph.json. No AI call."/>
+            </StackPanel>
+            <TextBlock x:Name="GraphStatus" DockPanel.Dock="Top" Style="{StaticResource Readout}" Margin="0,12,0,6"/>
+            <Button x:Name="AskAboutNote" DockPanel.Dock="Bottom" Content="Ask the tutor about the selected note" Click="OnAskAboutNote" HorizontalAlignment="Left" Margin="0,10,0,0" IsEnabled="False"/>
+            <ListBox x:Name="Nodes" SelectionChanged="OnNodeSelected" AutomationProperties.Name="Knowledge graph nodes">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource Mono}" Text="{Binding Degree}" Foreground="{DynamicResource AccentText}"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Style="{StaticResource Body}" Text="{Binding Label}"/>
+                                <TextBlock Style="{StaticResource Soft}" FontSize="11.5" Text="{Binding Links}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <!-- Workspace -->
+        <Grid x:Name="WorkspaceView" Grid.Row="2" Margin="0,12,0,0" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Choose workspace folder…" Click="OnChooseWorkspace"/>
+                <TextBlock x:Name="WorkspacePath" Style="{StaticResource Mono}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+            </DockPanel>
+            <TextBlock Grid.Row="1" Style="{StaticResource Soft}" FontSize="12" Margin="0,8,0,10"
+                       Text="Vernier can read text files in this folder to explain them, and can propose an edit that you review as a diff. It never runs code, never deletes files, never leaves this folder, and skips credential files and build folders."/>
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*" MinWidth="200"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="7*"/>
+                </Grid.ColumnDefinitions>
+                <ListBox x:Name="Files" SelectionChanged="OnFileSelected" AutomationProperties.Name="Workspace files">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Style="{StaticResource Mono}" FontSize="11.5" Text="{Binding}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <Border Grid.Column="2" Style="{StaticResource Panel}" Padding="10">
+                    <TextBox x:Name="FileText" IsReadOnly="True" BorderThickness="0" FontFamily="{StaticResource MonoFont}" FontSize="12" TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="File contents"/>
+                </Border>
+            </Grid>
+            <Grid Grid.Row="3" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="Explain" Content="Explain this file" Click="OnExplainFile" IsEnabled="False"/>
+                <TextBox x:Name="EditInstruction" Grid.Column="1" Margin="12,0,8,0" AutomationProperties.Name="Describe the edit you want" ToolTip="Describe a change, e.g. 'add a docstring to each function'"/>
+                <Button x:Name="Suggest" Grid.Column="2" Content="Suggest an edit…" Click="OnSuggestEdit" IsEnabled="False"/>
+            </Grid>
+        </Grid>
+
+        <TextBlock x:Name="Status" Grid.Row="3" Style="{StaticResource Readout}" Margin="0,10,0,0"/>
+    </Grid>
+</UserControl>

@@ -1,0 +1,34 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+    <!-- Night (default): deep slate, so the bar sits quietly over whatever is being studied. Blue-family accent is the tutor, yellow is you. Contrast checked (text pairs >= 4.5:1). -->
+    <sys:Boolean x:Key="IsDark">True</sys:Boolean>
+    <SolidColorBrush x:Key="Bg" Color="#0C141B"/>
+    <SolidColorBrush x:Key="Surface" Color="#121C25"/>
+    <SolidColorBrush x:Key="SurfaceAlt" Color="#1A2731"/>
+    <SolidColorBrush x:Key="Ink" Color="#E4ECF2"/>
+    <SolidColorBrush x:Key="InkSoft" Color="#B2C0CB"/>
+    <SolidColorBrush x:Key="InkFaint" Color="#8496A3"/>
+    <SolidColorBrush x:Key="Rule" Color="#25343F"/>
+    <SolidColorBrush x:Key="RuleStrong" Color="#45596A"/>
+    <SolidColorBrush x:Key="Accent" Color="#6CC4FF"/>
+    <SolidColorBrush x:Key="AccentText" Color="#8AD0FF"/>
+    <SolidColorBrush x:Key="You" Color="#FFD84D"/>
+    <SolidColorBrush x:Key="OnInk" Color="#0C141B"/>
+    <SolidColorBrush x:Key="Ok" Color="#6FD98A"/>
+    <SolidColorBrush x:Key="Warn" Color="#F2C14E"/>
+    <SolidColorBrush x:Key="Err" Color="#FF8A8A"/>
+    <SolidColorBrush x:Key="Hover" Color="#1E2C37"/>
+    <SolidColorBrush x:Key="Pressed" Color="#293A47"/>
+    <!-- Depth: light comes from above. Glass tints the acrylic backdrop; Edge lights the top of a raised surface; Sheen lifts a filled button. -->
+    <SolidColorBrush x:Key="BgGlass" Color="#D80C141B"/>
+    <Color x:Key="ShadowColor">#000000</Color>
+    <LinearGradientBrush x:Key="Edge" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#45596A"/>
+        <GradientStop Offset="1" Color="#25343F"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Sheen" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#1FFFFFFF"/>
+        <GradientStop Offset="0.55" Color="#00FFFFFF"/>
+    </LinearGradientBrush>
+</ResourceDictionary>

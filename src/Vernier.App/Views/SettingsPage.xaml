@@ -1,0 +1,278 @@
+<UserControl x:Class="Vernier.App.Views.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left" Margin="0,0,16,24">
+            <TextBlock Style="{StaticResource Title}" Text="Settings"/>
+
+            <!-- Accounts -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="Accounts"/>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12.5" Margin="0,0,0,10"
+                               Text="Use the subscription you already have instead of an API key. Sign-in is done by each company's own command-line tool in your browser: Vernier starts that tool for you and never sees your password or token."/>
+                    <ItemsControl x:Name="Accounts">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="St" Style="{StaticResource Readout}" Text="{Binding State}" Foreground="{DynamicResource Warn}" Margin="0,3,0,0"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Style="{StaticResource Body}" FontSize="14" Text="{Binding Name}"/>
+                                        <TextBlock Style="{StaticResource Soft}" FontSize="12" Text="{Binding Detail}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="{Binding ActionLabel}" Tag="{Binding Id}" Click="OnAccountAction" IsEnabled="{Binding CanAct}" AutomationProperties.Name="{Binding ActionName}"/>
+                                        <Button Style="{StaticResource Quiet}" Content="Use for tutoring" Tag="{Binding Id}" Click="OnAccountUse" IsEnabled="{Binding SignedIn}" AutomationProperties.Name="{Binding UseName}"/>
+                                    </StackPanel>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding SignedIn}" Value="True">
+                                        <Setter TargetName="St" Property="Foreground" Value="{DynamicResource Ok}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Style="{StaticResource Quiet}" Content="Check again" Click="OnAccountsRefresh" HorizontalAlignment="Left" Margin="0,4,0,0" ToolTip="After signing in in the terminal, press this"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Provider -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="AI provider"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Soft}" Text="Tutor uses" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="ProviderBox" Grid.Column="1" DisplayMemberPath="DisplayName" SelectionChanged="OnProviderChanged" AutomationProperties.Name="Provider"/>
+
+                        <TextBlock Grid.Row="1" Style="{StaticResource Soft}" Text="Model" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Height="32">
+                            <Button DockPanel.Dock="Right" Content="List models" Click="OnListModels" Margin="8,0,0,0" ToolTip="Ask the service which models it offers"/>
+                            <ComboBox x:Name="ModelBox" IsEditable="False" SelectionChanged="OnModelPicked" DockPanel.Dock="Right" Width="200" Margin="8,0,0,0" Visibility="Collapsed" AutomationProperties.Name="Available models"/>
+                            <TextBox x:Name="ModelText" LostFocus="OnProviderFieldChanged" AutomationProperties.Name="Model id"/>
+                        </DockPanel>
+
+                        <TextBlock x:Name="EndpointLabel" Grid.Row="2" Style="{StaticResource Soft}" Text="Endpoint" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox x:Name="EndpointText" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" LostFocus="OnProviderFieldChanged" AutomationProperties.Name="Endpoint URL"/>
+
+                        <TextBlock x:Name="KeyLabel" Grid.Row="3" Style="{StaticResource Soft}" Text="API key" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <DockPanel x:Name="KeyRow" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Quiet}" Content="Remove" Click="OnRemoveKey"/>
+                            <Button DockPanel.Dock="Right" Content="Save key" Click="OnSaveKey" Margin="8,0,0,0"/>
+                            <PasswordBox x:Name="KeyBox" AutomationProperties.Name="API key"/>
+                        </DockPanel>
+                        <TextBlock x:Name="KeyStatus" Grid.Row="4" Grid.Column="1" Style="{StaticResource Readout}" Margin="0,4,0,0"/>
+
+                        <CheckBox x:Name="VisionCheck" Grid.Row="5" Grid.Column="1" Content="This model accepts images" Click="OnProviderFieldChanged" Margin="0,8,0,0"
+                                  ToolTip="Leave off unless you know the model is multimodal. With it off, only the text read from the screen is sent."/>
+                    </Grid>
+                    <TextBlock x:Name="ProviderNotes" Style="{StaticResource Soft}" FontSize="12" Margin="0,10,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button x:Name="TestButton" Content="Test connection" Click="OnTest"/>
+                        <TextBlock x:Name="TestResult" Style="{StaticResource Body}" VerticalAlignment="Center" Margin="12,0,0,0" MaxWidth="560"/>
+                    </StackPanel>
+
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource Soft}" Text="Second-opinion checker" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="CheckerBox" Grid.Column="1" DisplayMemberPath="DisplayName" SelectionChanged="OnCheckerChanged" AutomationProperties.Name="Checker provider"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="150,4,0,0"
+                               Text="Arithmetic, units and annotation placement are always re-checked by code at no cost. A second model is only called when code could verify nothing in an answer, and costs one extra request each time. It counts as independent only if it is a different provider or model."/>
+                </StackPanel>
+            </Border>
+
+            <!-- Models per task -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="Models"/>
+                    <CheckBox x:Name="AutoRouteBox" Content="Choose the model by the kind of question" Click="OnRouting"/>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="26,2,0,8" TextWrapping="Wrap"
+                               Text="Off: every question goes to the provider above. On: each kind of question goes to the model you pick here, and the answer says which one served it. The model chosen in the ask bar always wins. Timings and token use per model are in Diagnostics."/>
+                    <StackPanel x:Name="RoutesPanel"/>
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource Soft}" Text="Context summaries" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="ContextModelBox" Grid.Column="1" SelectionChanged="OnContextModel" AutomationProperties.Name="Model that summarises your work"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="150,4,0,0" TextWrapping="Wrap"
+                               Text="Optional. A local model (Ollama, LM Studio) writes one line about each longer stretch of work, so later questions can find it by topic. Context works without it: the episodes, videos, rewinds and screen text are kept by code. Only local models run in the background."/>
+                </StackPanel>
+            </Border>
+
+            <!-- Privacy -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="Privacy and permissions"/>
+                    <CheckBox x:Name="AllowCapture" Content="Let Vernier look at my screen when I ask or mark something" Click="OnPrivacy"/>
+                    <CheckBox x:Name="AllowMic" Content="Allow the microphone while I hold the talk button" Click="OnPrivacy"/>
+                    <CheckBox x:Name="AllowActivity" Content="Keep context of my work: apps, pages and videos, for how long, what I rewound" Click="OnPrivacy"/>
+                    <CheckBox x:Name="ReadScreen" Content="Also read the text of the window in front when it changes (local OCR, memory only)" Click="OnPrivacy" Margin="26,4,0,0"/>
+                    <CheckBox x:Name="Proactive" Content="Offer help when I seem stuck, such as rewinding the same part of a video (a notification, at most twice an hour; nothing is sent)" Click="OnPrivacy" Margin="26,4,0,0"/>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="26,2,0,4" TextWrapping="Wrap"
+                               Text="Episodes (app, cleaned page address, video and position, time spent, questions asked) are kept on this computer for the number of days below; text read from the screen is never saved. Private browser windows, password managers and the apps you list are skipped. Pause and Share-Safe stop it. It goes to a model only with a question you ask, and the ask bar shows what goes."/>
+                    <StackPanel Orientation="Horizontal" Margin="26,4,0,4">
+                        <TextBlock Style="{StaticResource Soft}" Text="Keep for" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox x:Name="RetentionText" Width="44" LostFocus="OnContextNumbers" AutomationProperties.Name="Days to keep context"/>
+                        <TextBlock Style="{StaticResource Soft}" Text="days · never record" VerticalAlignment="Center" Margin="8,0,8,0"/>
+                        <TextBox x:Name="ExcludedText" Width="220" LostFocus="OnContextNumbers" AutomationProperties.Name="Apps never recorded" ToolTip="Process names, separated by commas, e.g. outlook, slack"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="26,4,0,8">
+                        <Button Content="Forget the last hour" Click="OnForgetHour" Margin="0,0,8,0"/>
+                        <Button Content="Forget today" Click="OnForgetToday" Margin="0,0,8,0"/>
+                        <Button Content="Forget all context" Click="OnForgetAll"/>
+                    </StackPanel>
+                    <CheckBox x:Name="AllowNotes" Content="Allow sending my notes, workspace files and a summary of my learning record to a remote provider" Click="OnPrivacy"/>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="26,2,0,4"
+                               Text="Off: a remote tutor sees only your question and the screen target, and cannot adapt to what you have already mastered or got wrong. Local providers always get the summary, because nothing leaves this computer."/>
+                    <CheckBox x:Name="AllowControl" Content="Allow assisted input: when I ask, the tutor may click and type in the app I asked about, one step at a time" Click="OnPrivacy"/>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="26,2,0,0"
+                               Text="Each step is shown on screen and runs only after you allow it; an unanswered request closes by itself after a minute. It never acts in terminals, administrator windows or password fields, never sends system shortcuts, and Esc stops it for the rest of the answer."/>
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Soft}" Text="Largest image edge sent to a model" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox x:Name="EdgeText" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" LostFocus="OnNumbers" AutomationProperties.Name="Maximum image edge in pixels"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource Soft}" Text="pixels (smaller costs less, locates less precisely)" VerticalAlignment="Center" Margin="8,8,0,0"/>
+                        <TextBlock Grid.Row="2" Style="{StaticResource Soft}" Text="Delete sessions older than" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox x:Name="RetainText" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" LostFocus="OnNumbers" AutomationProperties.Name="Session retention in days"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Style="{StaticResource Soft}" Text="days (0 keeps them until you delete them)" VerticalAlignment="Center" Margin="8,8,0,0"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Connectors -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="Connectors"/>
+                    <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="0,0,0,8"
+                               Text="Google Docs: the tutor can save explanations to a document called Vernier notes when you ask, and read it back. Vernier asks only for permission to open documents it creates. Use your own OAuth client (Google Cloud › Credentials › Desktop app); you sign in in your browser, and the sign-in is kept in Windows Credential Manager."/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Soft}" Text="OAuth client id" VerticalAlignment="Center"/>
+                        <TextBox x:Name="GoogleClientIdBox" Grid.Column="1" AutomationProperties.Name="Google OAuth client id"/>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Soft}" Text="Client secret" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <PasswordBox x:Name="GoogleSecretBox" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" AutomationProperties.Name="Google OAuth client secret"/>
+                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button x:Name="GoogleConnectButton" Content="Connect Google Docs…" Click="OnGoogleConnect" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="GoogleStatus" Style="{StaticResource Readout}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Learner -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="About you"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Soft}" Text="Level" VerticalAlignment="Center"/>
+                        <TextBox x:Name="LevelText" Grid.Column="1" LostFocus="OnLearner" AutomationProperties.Name="Your level"/>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Soft}" Text="Goal" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox x:Name="GoalsText" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" LostFocus="OnLearner" AutomationProperties.Name="Your goal"/>
+                        <TextBlock Grid.Row="2" Style="{StaticResource Soft}" Text="Pace" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox x:Name="PaceText" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" LostFocus="OnLearner" AutomationProperties.Name="Preferred pace"/>
+                        <TextBlock Grid.Row="3" Style="{StaticResource Soft}" Text="How you are assessed" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox x:Name="AssessText" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" LostFocus="OnLearner" AutomationProperties.Name="How you are assessed"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Voice, review, appearance -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="Voice, review and appearance"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="260"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Soft}" Text="Speech speed" VerticalAlignment="Center"/>
+                        <Slider x:Name="RateSlider" Grid.Column="1" Minimum="0.5" Maximum="2" TickFrequency="0.25" IsSnapToTickEnabled="True" ValueChanged="OnRate" AutomationProperties.Name="Speech speed"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="12,0,0,0">
+                            <TextBlock x:Name="RateText" Style="{StaticResource Mono}" VerticalAlignment="Center" Width="48"/>
+                            <Button Style="{StaticResource Quiet}" Content="Try it" Click="OnTryVoice"/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Soft}" Text="First review intervals" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox x:Name="IntervalsText" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" LostFocus="OnNumbers" AutomationProperties.Name="First review intervals in days"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource Soft}" Text="days, comma separated; later ones grow automatically" VerticalAlignment="Center" Margin="12,8,0,0"/>
+                        <TextBlock Grid.Row="2" Style="{StaticResource Soft}" Text="Theme" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <WrapPanel x:Name="ThemePicker" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Data -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Heading}" Text="Your data"/>
+                    <TextBlock x:Name="DataPath" Style="{StaticResource Soft}" FontSize="12"/>
+                    <WrapPanel Margin="0,10,0,0">
+                        <Button Content="Export learning record…" Click="OnExport" Margin="0,0,8,8"/>
+                        <Button Content="Export cards as CSV…" Click="OnExportCsv" Margin="0,0,8,8"/>
+                        <Button Content="Import…" Click="OnImport" Margin="0,0,8,8"/>
+                        <Button Content="Back up now" Click="OnBackup" Margin="0,0,8,8"/>
+                        <Button x:Name="RemoveSample" Content="Remove sample data" Click="OnRemoveSample" Margin="0,0,8,8"/>
+                        <Button Style="{StaticResource Danger}" Content="Erase everything…" Click="OnErase" Margin="0,0,8,8"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="DataStatus" Style="{StaticResource Readout}" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
