@@ -4,7 +4,25 @@ Date: 2026-10-11 · Machine: Windows 11 24H2, build 26100, x64, one display 2560
 
 This report separates what was **run against the real thing**, what was **simulated**, and what was **not verified**. A simulated test shows the logic is right; it is not evidence that a real service or OS path works.
 
-## Revision 9 status (version 0.4.0, 2026-10-18): read this first
+## Revision 10 status (version 0.4.0, 2026-10-18): read this first
+
+Run on Windows 11 build 26100, display on; the owner allowed desktop and live runs in this session.
+
+| Command | Result |
+|---|---|
+| `scripts/publish.ps1` | **429 of 429 tests passed**; single-file publish (162.9 MB, exactly `Vernier.exe` + `Vernier.Native.dll`); smoke test passed (native ABI 2 loaded) |
+| `VERNIER_LIVE=1`, `A_real_model_is_made_to_draw_a_3D_diagram_and_uses_the_distance_vernier_computed` | Passed (17 s): a real model, told a diagram was required for a skew-lines question, called `overlay_diagram` with `measure: skew_lines`, Vernier computed 2.8284, and the answer used it |
+
+| Claim | Evidence |
+|---|---|
+| Graph regions sit on the real shape | `InkMap`/`CurveTrace` find the drawn line in the screenshot's pixels (dark or strongly coloured, not the pale grid). `graph_area` now has `trace` (follows the drawn curve pixel by pixel; area by the trapezoid rule, net and absolute reported) and snaps shape corners onto the drawn line when it is within a few pixels, reporting each move and any corner not on a line. Tests: a corner 0.4 units off a √x curve is pulled onto it and a grid line is not mistaken for it; tracing a synthetic √x graph gives the area within −3 %/+2 % of the exact integral. Not verified on a real photographed or screenshotted graph |
+| Garbled symbols | Cause: TeX written in note text, labels or an unparsed formula was drawn raw. `TexPlain` turns it into symbols (Δ, ×, ², →, v⃗, √(…), °) and is applied to note text and titles, the formula fallback, mark labels and diagram labels; Cambria Math / Segoe UI Symbol added to the font chains; the guide tells the tutor to write symbols. 7 cases tested. Which exact output the owner saw ("bath/ab") was not reproduced |
+| 3D, complex and higher-dimensional problems are drawn every time | `DimensionPolicy` (vectors, cross/dot product, skew lines, planes, torque, fields, complex numbers, 3D/4D, higher dimensions, from the question or the screen text; inclined planes excluded) puts "Diagram: REQUIRED" in the question; `DimensionGate` re-asks once (combined with the research re-ask) when no `overlay_diagram` succeeded. `overlay_diagram`: space3d (points, vectors, lines, planes, segments), complex (Argand plane), hypercube (cube/tesseract for 4D and above by analogy). `Geometry3D` computes skew-line distance with the common perpendicular, point–plane distance, angle and cross product; tests include the exact values. Cards looked at: `docs/screenshots/diagram-{skew,torque,argand,tesseract}.png` |
+| Placement and dismissal | The diagram goes through the same free-space placement as note cards (refactored into one `PlaceCardAsync`) and has the same × button; a tool test shows it lands on the empty right half |
+
+Not verified: the diagram cards on a real screen over real content (rendered to bitmaps only); a 4D tesseract is a projection and the learner may need the explanation to read it; text in the owner's example screenshots was not run through OCR here.
+
+## Revision 9 status (version 0.4.0, 2026-10-18)
 
 Run on Windows 11 build 26100, display on, Claude Code CLI signed in. The owner allowed the desktop tests and live runs (real model, real web) for this run. Designs were reviewed twice by a four-role panel (PM, architect, developer, QA) before building; their agreed cuts are listed under "Not done".
 

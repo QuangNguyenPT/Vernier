@@ -416,7 +416,8 @@ public sealed class TutorSession
                 ? Vernier.Core.Research.ResearchPolicy.Decide(context?.App, screen is null ? null : ProcessName(screen.Foreground), question)
                 : Vernier.Core.Research.ResearchDemand.None;
             var request = new TutorRequest(mode, question, context, [.. _history], _sessionId, notesContext, _settings.AllowComputerControl, attachments, tools, index, work, episodes,
-                _memory.Render(MasteryTutor.HistoryTurns), research);
+                _memory.Render(MasteryTutor.HistoryTurns), research,
+                tools?.Turn.Allowed.Contains("overlay_diagram") == true ? DimensionPolicy.Decide(question, context?.JoinedText) : VisualDemand.None);
             called = true;
             var turn = await Task.Run(() => _pipeline.RunAsync(request, provider, checker, callbacks, ct), ct);
             var allowActions = _settings.AllowComputerControl && context is not null && ActionWindow != 0;
@@ -520,6 +521,7 @@ public sealed class TutorSession
         "look" => "looking closer",
         "find_on_screen" => "finding it on screen",
         "web_research" => "researching on the web",
+        "overlay_diagram" => "drawing a diagram",
         "graph_area" => "measuring the area on the graph",
         _ => "using " + tool,
     };

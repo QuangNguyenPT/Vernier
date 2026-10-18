@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Vernier.App.Platform;
+using Vernier.Core.Agents;
 using Vernier.Core.Annotations;
 using Vernier.Core.Geometry;
 
@@ -234,7 +235,7 @@ internal sealed class GlassSurface : FrameworkElement
 /// <summary>Turns a mark into drawing instructions. Pens, brushes and colours are created once and frozen.</summary>
 internal static class MarkPainter
 {
-    private static readonly Typeface LabelFace = new(new FontFamily("Segoe UI Variable Text, Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+    private static readonly Typeface LabelFace = new(new FontFamily("Segoe UI Variable Text, Segoe UI, Cambria Math, Segoe UI Symbol"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
     public static readonly Brush HitPlate = Frozen(Color.FromArgb(1, 0, 0, 0));
     private static readonly Brush Halo = Frozen(Color.FromArgb(96, 0, 0, 0));
     private static readonly Brush PlateFill = Frozen(Color.FromArgb(236, 12, 20, 27));
@@ -386,10 +387,11 @@ internal static class MarkPainter
                 labelAt = new Point(region.Bounds.X + 6, region.Bounds.Y + region.Bounds.Height * 0.55 + 14);
                 break;
             }
-            case AnnotationKind.Note when a.Note is { } note && pts.Count >= 2:
+            case AnnotationKind.Note or AnnotationKind.Diagram when pts.Count >= 2 && (a.Note is not null || a.Diagram is not null):
             {
                 // A written card: drawn once to a bitmap (see NoteRenderer); it wipes in from the top like writing appearing.
-                var card = NoteRenderer.CardFor(a.Id, note, Math.Abs(pts[1].X - pts[0].X), pixelsPerDip);
+                var cardWidth = Math.Abs(pts[1].X - pts[0].X);
+                var card = a.Diagram is { } diagram ? DiagramRenderer.CardFor(a.Id, diagram, cardWidth, pixelsPerDip) : NoteRenderer.CardFor(a.Id, a.Note!, cardWidth, pixelsPerDip);
                 if (reveal)
                 {
                     var wipeStart = new GradientStop(Colors.Black, -0.15);
@@ -413,7 +415,7 @@ internal static class MarkPainter
 
         if (a.Label is { Length: > 0 } label && labelAt is { } spot)
         {
-            var text = new FormattedText(label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, LabelFace, 14, System.Windows.Media.Brushes.White, pixelsPerDip) { MaxTextWidth = 260 };
+            var text = new FormattedText(TexPlain.Clean(label), CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, LabelFace, 14, System.Windows.Media.Brushes.White, pixelsPerDip) { MaxTextWidth = 260 };
             // A rounded tag with a dot of the mark's colour; kept on the glass even when the mark sits against a screen edge.
             double w = text.Width + 26, h = text.Height + 8;
             var plate = new Rect(Math.Clamp(spot.X, 0, Math.Max(0, bounds.Width - w)), Math.Clamp(spot.Y - h - 4, 0, Math.Max(0, bounds.Height - h)), w, h);

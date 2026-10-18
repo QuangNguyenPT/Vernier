@@ -9,6 +9,7 @@ A tutor that sits over your screen while you study. Stay in the video, the paper
 - **Fast to draw, nothing left behind:** the pen is drawn by a native layer on its own thread and fades by itself; only the tutor's marks stay. The tutor points with one batched call and writes its working on a dark handwriting card placed on free space beside the problem, like a teacher writing next to it; it never writes drawing code.
 - **Researches instead of guessing:** for a web page, software such as Blender, or anything it is unsure of, the tutor searches and reads at least three working pages before it explains, in its own words (required by code, re-asked once if skipped).
 - **Graphs:** asked for an area under a graph, the tutor shades the triangles and trapezoids on the graph and Vernier computes the areas.
+- **Sees the problem:** for vectors, planes, complex numbers or 3D/4D questions the tutor draws a diagram (axes, lines, the common perpendicular, the Argand plane, a tesseract) and Vernier computes the numbers; graph regions follow the real curve.
 - **Marks stay with the content:** they move when the page scrolls, and only the ones whose content is gone are removed.
 - **Answers are typeset:** reading text in Sitka, formulas as real mathematics (stacked fractions, exponents, roots) that screen readers speak; five colour themes (Night, Aurora, Nebula, Glacier, Paper) with Windows 11 acrylic and depth.
 - **Use the account you already have:** sign in with your Claude or ChatGPT subscription through the vendor's own CLI, or use an API key, or a local model.

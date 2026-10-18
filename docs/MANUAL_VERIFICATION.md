@@ -106,6 +106,10 @@ Use a harmless target (Notepad, with nothing unsaved).
 - [ ] Open a velocity–time graph and ask for the displacement: the region is shaded with triangles/rectangles/trapezoids, each labelled with its area, and the answer uses those numbers and says approximate for a curve.
 - [ ] Open Blender (or any app Vernier does not know) and ask what a tool does: the ask bar shows "researching on the web", the answer explains in its own words and ends with a short Sources line naming at least three sites.
 
+- [ ] Ask about the shortest distance between two skew lines (or vectors, a complex number, 4D): a dark diagram card appears on free space with axes, the lines, the common perpendicular and the distance, and the tutor explains around it. Its × removes it.
+- [ ] On a curved graph, ask for the displacement: the shaded region follows the drawn curve (not a few straight pieces floating off it).
+- [ ] No answer, label or card shows raw backslashes or braces.
+
 ## 8c. Look and feel
 
 - [ ] Try each theme (Settings › Theme): the ask bar is see-through acrylic with rounded corners and a soft shadow on Windows 11; with "Transparency effects" off it is opaque.

@@ -27,6 +27,10 @@ public sealed record AxisCalibration(AxisTick X0, AxisTick X1, AxisTick Y0, Axis
     public PxPoint ToImage(double x, double y) =>
         new(X0.Px + (x - X0.Value) * (X1.Px - X0.Px) / (X1.Value - X0.Value), Y0.Px + (y - Y0.Value) * (Y1.Px - Y0.Px) / (Y1.Value - Y0.Value));
 
+    /// <summary>The data values at a screenshot position (the inverse of <see cref="ToImage"/>).</summary>
+    public (double X, double Y) ToData(double px, double py) =>
+        (X0.Value + (px - X0.Px) * (X1.Value - X0.Value) / (X1.Px - X0.Px), Y0.Value + (py - Y0.Px) * (Y1.Value - Y0.Value) / (Y1.Px - Y0.Px));
+
     /// <summary>The area of a polygon given in data units (absolute shoelace), in x-unit × y-unit.</summary>
     public static double Area(IReadOnlyList<(double X, double Y)> v)
     {

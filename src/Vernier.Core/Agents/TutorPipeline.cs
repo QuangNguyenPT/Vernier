@@ -20,7 +20,8 @@ public sealed record TutorRequest(
     WorkContext? Work = null,
     Context.ContextSelection? Episodes = null,
     string? SessionDigest = null,
-    Research.ResearchDemand? Research = null);
+    Research.ResearchDemand? Research = null,
+    VisualDemand? Visual = null);
 
 public sealed class PipelineCallbacks
 {
@@ -61,7 +62,7 @@ public sealed class TutorPipeline(MasteryTutor tutor, Verifier verifier, Learnin
         if (!vision && attachments.Any(a => a.Image is not null))
             notices.Add($"{provider.DisplayName} is text-only here, so attached pictures were not sent.");
         var chat = tutor.BuildRequest(request.Mode, request.Question, context, request.History, settings.Learner, LearningFor(provider), vision, request.NotesContext, attachments,
-            request.AllowActions, request.Screen, provider.Capabilities.Tools ? request.Tools : null, request.Work, request.Episodes, request.SessionDigest, request.Research);
+            request.AllowActions, request.Screen, provider.Capabilities.Tools ? request.Tools : null, request.Work, request.Episodes, request.SessionDigest, request.Research, request.Visual);
 
         Enter(PipelineStage.Teach);
         var (raw, usage) = await StreamAsync(provider, chat, callbacks, ct).ConfigureAwait(false);
@@ -70,17 +71,21 @@ public sealed class TutorPipeline(MasteryTutor tutor, Verifier verifier, Learnin
         var demand = request.Research ?? Research.ResearchDemand.None;
         var offered = chat.Tools?.Turn.Allowed.Contains("web_research") == true;
         Research.ResearchLedger? Ledger() => chat.Tools?.Turn.State.TryGetValue(Research.ResearchLedger.Key, out var l) == true ? l as Research.ResearchLedger : null;
-        if (Research.ResearchGate.Check(demand, Ledger(), offered) is { } reask)
+        var asks = new List<string>();
+        if (Research.ResearchGate.Check(demand, Ledger(), offered) is { } researchAsk) asks.Add(researchAsk);
+        var drew = chat.Tools?.Turn.Events.Any(e => e.Tool == "overlay_diagram" && !e.IsError) == true;
+        if (DimensionGate.Check(request.Visual ?? VisualDemand.None, drew, chat.Tools?.Turn.Allowed.Contains("overlay_diagram") == true) is { } visualAsk) asks.Add(visualAsk);
+        if (asks.Count > 0)
         {
             Enter(PipelineStage.Correct);
             try
             {
-                (raw, var moreUsage) = await StreamAsync(provider, tutor.BuildResearchReask(chat, raw, reask), callbacks, ct).ConfigureAwait(false);
+                (raw, var moreUsage) = await StreamAsync(provider, tutor.BuildResearchReask(chat, raw, string.Join("\n\n", asks)), callbacks, ct).ConfigureAwait(false);
                 usage = Add(usage, moreUsage);
                 log.Info($"Research re-ask: {Ledger()?.Working ?? 0} working source(s) after it.");
             }
             catch (ProviderException e) { notices.Add($"The answer was not researched as required and could not be asked again ({e.Kind})."); }
-            if ((Ledger()?.Working ?? 0) < Research.ResearchPolicy.MinSources)
+            if (demand.Required && (Ledger()?.Working ?? 0) < Research.ResearchPolicy.MinSources)
                 notices.Add($"This explanation is based on {Ledger()?.Working ?? 0} working web source(s), fewer than the {Research.ResearchPolicy.MinSources} required; check details of the software or page yourself.");
         }
         var output = TutorOutput.Parse(raw);

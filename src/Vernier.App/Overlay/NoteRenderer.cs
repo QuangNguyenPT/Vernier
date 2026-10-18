@@ -20,8 +20,8 @@ public static class NoteRenderer
     private static readonly Color Ink = Color.FromRgb(0xF4, 0xF7, 0xFA), Soft = Color.FromRgb(0xC9, 0xD4, 0xDD), Blue = Color.FromRgb(0x6C, 0xC4, 0xFF),
         Green = Color.FromRgb(0x6F, 0xD9, 0x8A), Red = Color.FromRgb(0xFF, 0x8A, 0x8A);
 
-    private static readonly FontFamily Hand = new("Segoe Print, Ink Free, Segoe Script, Segoe UI"); // sturdy and even: legible at a glance over any page
-    private static readonly FontFamily Clean = new("Sitka Text, Cambria, Georgia");
+    private static readonly FontFamily Hand = new("Segoe Print, Ink Free, Segoe Script, Segoe UI, Cambria Math, Segoe UI Symbol"); // sturdy and even: legible at a glance over any page
+    private static readonly FontFamily Clean = new("Sitka Text, Cambria, Georgia, Cambria Math, Segoe UI Symbol");
     private static readonly FontFamily Heading = new("Sitka Subheading, Sitka Heading, Cambria, Georgia");
 
     /// <param name="Image">The card with its soft shadow round it: <see cref="ShadowMargin"/> wider than the card on every side.</param>
@@ -60,13 +60,25 @@ public static class NoteRenderer
     {
         var column = new StackPanel { Margin = new Thickness(18, 12, 16, 14) };
         if (note.Title is { Length: > 0 } title)
-            column.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), FontFamily = Heading, FontSize = 13, FontWeight = FontWeights.Bold, Foreground = Brush(Blue), Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
+            column.Children.Add(new TextBlock { Text = TexPlain.Clean(title).ToUpperInvariant(), FontFamily = Heading, FontSize = 13, FontWeight = FontWeights.Bold, Foreground = Brush(Blue), Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
         foreach (var line in note.Lines) column.Children.Add(Line(line, note.Handwriting));
 
+        return Wrap(WithRule(column), widthDip, dpiScale);
+    }
+
+    /// <summary>The blue rule down the left edge that marks a card as the tutor's.</summary>
+    public static UIElement WithRule(UIElement content)
+    {
         var rule = new Border { Width = 3, Background = Brush(Blue), CornerRadius = new CornerRadius(1.5), Margin = new Thickness(0, 12, 0, 12), HorizontalAlignment = HorizontalAlignment.Left };
         var grid = new Grid();
-        grid.Children.Add(column);
+        grid.Children.Add(content);
         grid.Children.Add(rule);
+        return grid;
+    }
+
+    /// <summary>The card itself: dark paper lit from above, a lit rim, a soft shadow, rendered once to a bitmap. Shared by note cards and diagrams.</summary>
+    public static Card Wrap(UIElement grid, double widthDip, double dpiScale)
+    {
         // Depth from light above: the paper is a shade lighter at the top, its rim is lit along the top and fades down the
         // sides, and it sits on a soft shadow, so it reads as a card lying over the page rather than a box cut out of it.
         var paper = new LinearGradientBrush(PaperTop, Paper, 90);
@@ -104,7 +116,7 @@ public static class NoteRenderer
             var prefix = line.Kind == NoteLineKind.Check ? "✓ " : line.Kind == NoteLineKind.Error ? "✗ " : "";
             panel.Children.Add(new TextBlock
             {
-                Text = prefix + line.Text, TextWrapping = TextWrapping.Wrap, Foreground = Brush(colour),
+                Text = prefix + TexPlain.Clean(line.Text), TextWrapping = TextWrapping.Wrap, Foreground = Brush(colour),
                 FontFamily = handwriting ? Hand : Clean, FontSize = handwriting ? 17.5 : 16.5, LineHeight = handwriting ? 28 : 24,
                 FontStyle = line.Kind == NoteLineKind.Note ? FontStyles.Italic : FontStyles.Normal,
             });
@@ -124,7 +136,7 @@ public static class NoteRenderer
         else if (line.Math is { Length: > 0 } source)
         {
             // TeX the engine cannot read is shown as written, never dropped.
-            panel.Children.Add(new TextBlock { Text = source, Foreground = Brush(colour), FontFamily = Clean, FontSize = 16, TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = TexPlain.Clean(source), Foreground = Brush(colour), FontFamily = Clean, FontSize = 16, TextWrapping = TextWrapping.Wrap });
         }
         return panel;
     }

@@ -121,13 +121,15 @@ public sealed class MasteryTutor
         TutorMode mode, string question, ContextSnapshot? context, IReadOnlyList<ChatMessage> history,
         LearnerProfile learner, LearningSummary learning, bool attachImage, string? notesContext,
         IReadOnlyList<Attachment>? attachments = null, bool allowActions = false, ScreenIndex? screen = null, Providers.ToolSession? tools = null, WorkContext? work = null, Context.ContextSelection? episodes = null,
-        string? sessionDigest = null, Research.ResearchDemand? research = null)
+        string? sessionDigest = null, Research.ResearchDemand? research = null, VisualDemand? visual = null)
     {
         var system = BuildSystem(learner, learning, allowActions, tools is not null);
         var user = new StringBuilder();
         user.AppendLine(ModeInstruction(mode));
         if (context?.App is { } app) user.AppendLine($"The learner is working in {app.Name} ({app.Category}). {app.Hints}");
         // Decided by Vernier's code for this turn, not a suggestion: the answer is checked against it.
+        if (visual is { Required: true } vd)
+            user.AppendLine($"Diagram: REQUIRED for this answer, because {vd.Reason}. Call overlay_diagram first (space3d, complex or hypercube; set measure so Vernier works the numbers out), then explain around what the learner sees. Above four dimensions, draw the 3D slice or the tesseract and explain the rest by analogy.");
         if (research is { Required: true } r)
             user.AppendLine($"Research: REQUIRED for this answer, because {r.Reason}. Call web_research first and read at least {Research.ResearchPolicy.MinSources} working sources, then explain in your own words for this learner.");
         else if (tools?.Turn.Allowed.Contains("web_research") == true)

@@ -104,6 +104,22 @@ public class ToolOverlayTests(ITestOutputHelper output)
             Assert.Contains("apart", refused.Text);
             AppServices.Annotations.RemoveWhere(a => a.Kind == AnnotationKind.Region);
 
+            // 2c. A diagram of a 3D problem: Vernier works the answer out, draws the common perpendicular and places the card on free space.
+            var dia = await AppServices.Tools.RunAsync("overlay_diagram", Json("""
+                {"kind":"space3d","title":"Shortest distance between skew lines","measure":"skew_lines",
+                 "items":[{"type":"line","a":[0,0,0],"b":[1,0,0],"label":"L1","tone":"main"},{"type":"line","a":[0,0,1],"b":[0,1,0],"label":"L2","tone":"main"}]}
+                """), turn, CancellationToken.None);
+            output.WriteLine(dia.Text);
+            Assert.False(dia.IsError, dia.Text);
+            Assert.Contains("Skew lines: shortest distance 1", dia.Text);
+            var diagram = Assert.Single(AppServices.Annotations.Items, a => a.Kind == AnnotationKind.Diagram);
+            Assert.Contains(diagram.Diagram!.Items, i => i.Type == "segment" && i.Label == "d = 1");
+            Assert.True(diagram.Points[0].X >= area.X + area.Width / 2 - 30, "the diagram sits on the free right half, not over the problem");
+            var badDia = await AppServices.Tools.RunAsync("overlay_diagram", Json("""{"kind":"complex","items":[{"type":"plane","a":[0,0],"b":[0,0,1]}]}"""), turn, CancellationToken.None);
+            Assert.True(badDia.IsError);
+            Assert.Contains("cannot be drawn", badDia.Text);
+            AppServices.Annotations.RemoveWhere(a => a.Kind == AnnotationKind.Diagram);
+
             // 3. Bad input is refused with something the model can act on, and drawing nothing.
             var empty = await AppServices.Tools.RunAsync("overlay_write", Json("""{"lines":[{"kind":"step"}]}"""), turn, CancellationToken.None);
             Assert.True(empty.IsError);
@@ -351,6 +367,32 @@ public class LiveOperatorTests(ITestOutputHelper output)
             // ½·4·12 + 5·12 + ½·1·12 = 24 + 60 + 6 = 90 m, computed by Vernier, and the answer gives that number.
             Assert.Contains(graph, e => e.Outcome.Contains("Total ≈ 90"));
             Assert.Contains("90", answer);
+        }
+        finally { AppServices.Shutdown(); }
+    });
+
+    [Fact]
+    public void A_real_model_is_made_to_draw_a_3D_diagram_and_uses_the_distance_vernier_computed() => WindowsRealApiTests.OnAppSta(async () =>
+    {
+        if (Environment.GetEnvironmentVariable("VERNIER_LIVE") != "1") return;
+        using var dir = new TempDir();
+        AppServices.Initialize(dir.Path);
+        try
+        {
+            var area = Vernier.App.Platform.Win32.Monitors().First(m => m.IsPrimary).BoundsPhysical;
+            var screen = new ScreenIndex("o1", new CaptureGeometry(area, (int)(area.Width / 2), (int)(area.Height / 2)),
+                [Line("1 Find the shortest distance between the skew lines", 20, 30), Line("x = 1 - t, y = 1 + t, z = 3 - t", 40, 60), Line("x = 2 + s, y = 1 - 2s, z = s", 40, 90)], DateTimeOffset.UtcNow);
+            var question = "Find the shortest distance between the skew lines on the worksheet.";
+            var demand = DimensionPolicy.Decide(question, screen.Describe());
+            Assert.True(demand.Required);
+            var (turn, answer) = await LiveTurnAsync(dir.Path, screen, area, ScreenTools.Names,
+                $"Diagram: REQUIRED for this answer, because {demand.Reason}. Call overlay_diagram first (space3d, complex or hypercube; set measure so Vernier works the numbers out), then explain around what the learner sees.\n" +
+                "Screen list:\n" + screen.Describe() + "\nQuestion: " + question);
+            var drawn = turn.Events.Where(e => e.Tool == "overlay_diagram" && !e.IsError).ToList();
+            Assert.NotEmpty(drawn);
+            Assert.Contains(drawn, e => e.Outcome.Contains("shortest distance 2.8284"));
+            Assert.Contains(AppServices.Annotations.Items, a => a.Kind == AnnotationKind.Diagram);
+            Assert.Matches(@"2\.83|2\.828|2\sqrt\{?2|2\s?√\s?2", answer);
         }
         finally { AppServices.Shutdown(); }
     });

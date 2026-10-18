@@ -441,7 +441,7 @@ public sealed class AnnotationOverlayManager : IDisposable
     private void SyncDismissButtons()
     {
         var notes = _store.Visible && IsRunning
-            ? _store.Items.Where(a => a is { Kind: AnnotationKind.Note, Points.Count: >= 2 }).ToDictionary(a => a.Id)
+            ? _store.Items.Where(a => a is { Kind: AnnotationKind.Note or AnnotationKind.Diagram, Points.Count: >= 2 }).ToDictionary(a => a.Id)
             : [];
         foreach (var id in _dismiss.Keys.Where(id => !notes.ContainsKey(id)).ToList())
         {
