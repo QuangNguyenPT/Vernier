@@ -18,7 +18,7 @@ public static partial class TexPlain
         ["Phi"] = "Φ", ["Psi"] = "Ψ", ["Omega"] = "Ω", ["times"] = "×", ["cdot"] = "·", ["div"] = "÷", ["pm"] = "±", ["mp"] = "∓", ["approx"] = "≈", ["neq"] = "≠", ["ne"] = "≠",
         ["leq"] = "≤", ["le"] = "≤", ["geq"] = "≥", ["ge"] = "≥", ["infty"] = "∞", ["to"] = "→", ["rightarrow"] = "→", ["Rightarrow"] = "⇒", ["leftarrow"] = "←",
         ["therefore"] = "∴", ["propto"] = "∝", ["partial"] = "∂", ["nabla"] = "∇", ["int"] = "∫", ["sum"] = "Σ", ["prod"] = "Π", ["in"] = "∈", ["perp"] = "⊥",
-        ["parallel"] = "∥", ["angle"] = "∠", ["circ"] = "°", ["degree"] = "°", ["ldots"] = "…", ["dots"] = "…", ["cdots"] = "⋯", ["hbar"] = "ħ", ["ell"] = "ℓ",
+        ["parallel"] = "∥", ["angle"] = "∠", ["circ"] = "°", ["degree"] = "°", ["ldots"] = "…", ["dots"] = "…", ["cdots"] = "⋯", ["hbar"] = "ħ", ["ell"] = "ℓ", ["sqrt"] = "√", ["frac"] = "", ["vec"] = "", ["mathrm"] = "", ["text"] = "", ["mathbf"] = "",
     };
 
     private const string SupDigits = "⁰¹²³⁴⁵⁶⁷⁸⁹", SubDigits = "₀₁₂₃₄₅₆₇₈₉";

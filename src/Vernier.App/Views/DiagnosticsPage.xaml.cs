@@ -46,6 +46,11 @@ public partial class DiagnosticsPage : UserControl, IRefreshable
         List<Integration> rows =
         [
             .. accounts.Select(a => new Integration(a.Account.Name, a.SignedIn, $"{(a.Path is null ? "" : a.Path + ". ")}{a.Detail}", a.Installed ? "signed out" : "not installed")),
+            new("Native module (C++)", Vernier.App.Platform.Native.Available, Vernier.App.Platform.Native.Available
+                ? $"Vernier.Native.dll ABI {Vernier.App.Platform.Native.Version} in use: GPU screen capture, image encoding, the capture light, the pen ink and mark matching run in C++."
+                : Vernier.App.Platform.Native.Version != 0
+                    ? $"Vernier.Native.dll reports ABI {Vernier.App.Platform.Native.Version}, this build needs {Vernier.App.Platform.Native.Abi}: not used. Everything runs on the slower managed fallbacks."
+                    : "Vernier.Native.dll is not beside Vernier.exe: everything runs on the slower managed fallbacks.", "fallback"),
             new("Graphify CLI", graphify is not null, graphify is not null
                 ? $"{graphify}. Vernier reads graphify-out/graph.json and can run 'graphify update'."
                 : "Not on PATH. Optional: the knowledge graph falls back to the links between your notes."),

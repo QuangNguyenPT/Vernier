@@ -4,7 +4,28 @@ Date: 2026-10-11 · Machine: Windows 11 24H2, build 26100, x64, one display 2560
 
 This report separates what was **run against the real thing**, what was **simulated**, and what was **not verified**. A simulated test shows the logic is right; it is not evidence that a real service or OS path works.
 
-## Revision 10 status (version 0.4.0, 2026-10-18): read this first
+## Revision 11 status (version 0.4.0, 2026-10-18): read this first
+
+Debugged from evidence first (the owner's log and route records, then failing tests), then fixed at the root. Run on Windows 11 build 26100, display on; the owner allowed desktop and live runs.
+
+| Command | Result |
+|---|---|
+| `scripts/publish.ps1` | **444 of 444 tests passed**; single-file publish 162.9 MB (exactly `Vernier.exe` + `Vernier.Native.dll`); smoke test passed (native ABI 2 loaded) |
+| `VERNIER_LIVE=1 VERNIER_LIVE_MODEL=haiku` (the owner's model) | All four passed with **Haiku**: forces on a ramp (drew a free-body diagram, used Vernier's 16.55 N); a curved v–t graph from real pixels with only the x range given (Vernier read the axes and traced the curve; area within the test's 82–88.5 band around the exact 85.3 m); skew lines (2.8284); Blender research on the real web (≥ 3 working sources) |
+
+| Symptom | Root cause (evidence) | Fix and proof |
+|---|---|---|
+| After a while the tutor stops drawing and refuses | The tool grant made while the ask bar opens was tied to a 2-minute timer that started then; the owner's turns took 115–123 s (`routes.jsonl`), and the log shows a research re-ask that read 0 sources at the end of such a turn | The warm turn now has a separate discard timer that is cancelled when a question takes it (`TutorSession.WarmTurn`); test `A_warm_turn_that_a_question_took_keeps_its_tools_after_the_warm_lifetime`. Every tool call is now logged (name, ok/failed, ms; never arguments or results) so the next failure leaves evidence |
+| Tutor gives up after a failed drawing ("the graph is wrong") | A refused call (bad axes, strict arguments) ended the attempt: strict validation refused "4" for 4 and any extra key, and nothing asked the model to retry | `SchemaCheck.Repair` fixes those shapes before validation and refusals show a valid call shape; `DrawingGate` re-asks once when a drawing call failed and was never retried, quoting the error and the fix; the guide says never blame the learner's graph for a tool error. Tests: argument repair, executor, gate. Hypothesis "Vernier's own shading reads as a screen change" was tested and **rejected** (the old check returned false with shading on screen); the test stays as a guard |
+| Drawings do not follow the window | Only marks inside the old window bounds moved; a card on free space beside the window stayed | Each tutor mark records the window it was drawn for and moves with it (`Rebase(..., belongs)`); desktop test reproduced the bug (card stayed at x = 593) and passes after the fix |
+| Not forced to draw for physics | Force/ramp problems were excluded and no diagram existed for them | `overlay_diagram` kind **forces** (free-body diagram on a slope; net force and components along/across the slope computed in code, tested exactly); `DimensionPolicy` now covers forces and graph questions (→ `graph_area`) and picks the kind; screen text alone triggers only with two distinct problem terms and never in code editors or terminals |
+| Small models struggle with the tools | Many arguments and a free-form task | A code-made **plan** in every relevant question (numbered steps with ready JSON calls), a copy-ready **cheat sheet** in the operator guide, axes **found automatically** from tick labels (`AxisFinder`, every label must lie on one line), and the curve found automatically (`FirstCurveY`), so `graph_area {"trace":{"x_from":0,"x_to":10}}` is enough |
+| Raw markup in answers | TeX outside `\( \)` and a half-streamed `\(` were drawn as text | `AnswerText` shows them as symbols through `TexPlain`; an old test that pinned the raw-while-streaming behaviour was replaced by one that requires symbols |
+| (review) Diagnostics did not say whether the C++ module was in use | — | A "Native module (C++)" row with its ABI |
+
+Not verified / known limits: the intermittent end-to-end UI failure seen once in this session (the stub answer not shown) did not recur after the stricter screen rule and could not be reproduced in isolation; its cause is not proven. Graph tracing assumes a dark or coloured curve on a light background; a curve drawn in pale grey, or several crossing curves, may be missed or confused (the tool then reports it). Automatic axes need readable tick labels; log axes are not supported.
+
+## Revision 10 status (version 0.4.0, 2026-10-18)
 
 Run on Windows 11 build 26100, display on; the owner allowed desktop and live runs in this session.
 

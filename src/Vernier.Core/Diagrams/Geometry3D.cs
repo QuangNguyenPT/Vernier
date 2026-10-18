@@ -43,6 +43,22 @@ public static class Geometry3D
         return (Math.Abs(signed), point - normal * (signed / len));
     }
 
+    /// <summary>The resultant of forces given as (size, direction in degrees anticlockwise from +x), and its components along and across a slope of <paramref name="slopeDeg"/> (along = up the slope).</summary>
+    public static (double Fx, double Fy, double Size, double Direction, double Along, double Across) Resultant(IEnumerable<(double Size, double Degrees)> forces, double slopeDeg = 0)
+    {
+        double fx = 0, fy = 0;
+        foreach (var (size, deg) in forces)
+        {
+            fx += size * Math.Cos(deg * Math.PI / 180);
+            fy += size * Math.Sin(deg * Math.PI / 180);
+        }
+        double s = slopeDeg * Math.PI / 180;
+        var direction = Math.Atan2(fy, fx) * 180 / Math.PI;
+        return (Clean(fx), Clean(fy), Clean(Math.Sqrt(fx * fx + fy * fy)), direction < 0 ? direction + 360 : direction, Clean(fx * Math.Cos(s) + fy * Math.Sin(s)), Clean(-fx * Math.Sin(s) + fy * Math.Cos(s)));
+
+        static double Clean(double v) => Math.Abs(v) < 1e-9 ? 0 : v;
+    }
+
     public static double AngleDegrees(V3 a, V3 b) => Math.Acos(Math.Clamp(V3.Dot(a, b) / (a.Length * b.Length), -1, 1)) * 180 / Math.PI;
 }
 

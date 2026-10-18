@@ -155,9 +155,13 @@ public static class ScreenTools
     {
         if (!turn.State.TryGetValue(FrameKey, out var f) || f is not CapturedFrame frame) return;
         var list = areas.ToList();
-        if (await Task.Run(() => list.Any(r => ScreenCaptureService.HasChanged(frame, r)), ct).ConfigureAwait(false))
+        if (await ChangedSinceCaptureAsync(frame, list).ConfigureAwait(false))
             throw new ToolException("That part of the screen has changed since the capture (scrolled, zoomed or moved on), so the mark would point at the wrong place. Call look to see it as it is now, then mark again.");
     }
+
+    /// <summary>Whether any of these areas looks different now from the turn's capture.</summary>
+    internal static Task<bool> ChangedSinceCaptureAsync(CapturedFrame frame, IReadOnlyList<PxRect> areas) =>
+        Task.Run(() => areas.Any(r => ScreenCaptureService.HasChanged(frame, r)));
 
     private static string Describe(ScreenIndex screen, ResolvedTarget target) =>
         target.Item is { } item ? $"\"{item.Text}\" ({item.Id}, {target.Method})" : $"{ScreenIndex.Box(screen.Image(target.Bounds))} ({target.Method}; drawn dashed as an estimate)";
@@ -264,8 +268,9 @@ public static class ScreenTools
 
         public ToolDefinition Definition { get; } = new("graph_area",
             "Shades the area under (or between) a graph and computes it, for displacement from a velocity–time graph, work from force–distance, charge from current–time. " +
-            "Read two labelled ticks on each axis from the screenshot, then EITHER trace the curve (best for a curved or irregular graph: give x_from, x_to and the value near the curve at x_from; Vernier follows the drawn line pixel by pixel and shades exactly what is under it) " +
-            "OR give up to 3 shapes (triangles, rectangles, trapezoids: corners in data units) for straight-line graphs; their corners are moved onto the drawn line when it is within a few pixels. " +
+            "Simplest call: {\"trace\": {\"x_from\": 0, \"x_to\": 10}}: Vernier reads the axes from the tick labels on the screen, finds the drawn curve, follows it pixel by pixel and shades exactly what is under it. " +
+            "If it cannot read the axes it says so: then also pass x_ticks and y_ticks (two labelled ticks per axis read from the screenshot). Instead of trace you may " +
+            "give up to 3 shapes (triangles, rectangles, trapezoids: corners in data units) for straight-line graphs; their corners are moved onto the drawn line when it is within a few pixels. " +
             "Everything is labelled with its area and computed in code: use the numbers it returns, and say they are approximate when they come from a curve. Linear axes only.",
             Schema(new JsonObject
             {
@@ -279,7 +284,7 @@ public static class ScreenTools
                     ["type"] = "object", ["required"] = new JsonArray("x_from", "x_to", "y_at_start"), ["additionalProperties"] = false,
                     ["properties"] = new JsonObject
                     {
-                        ["x_from"] = Num("Left end of the region, in x units."), ["x_to"] = Num("Right end, in x units."), ["y_at_start"] = Num("The curve's value at x_from (roughly): where Vernier starts following it."),
+                        ["x_from"] = Num("Left end of the region, in x units."), ["x_to"] = Num("Right end, in x units."), ["y_at_start"] = Num("Optional: the curve's value at x_from (roughly). Leave it out and Vernier finds the curve itself."),
                         ["baseline"] = Num("The y value the area is measured from; default 0."), ["name"] = Str("A short name shown on the region, e.g. s.", 12),
                     },
                 },
@@ -300,7 +305,7 @@ public static class ScreenTools
                         },
                     },
                 },
-            }, "x_ticks", "y_ticks"),
+            }),
             ToolRisk.Annotate);
 
         public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolTurn turn, CancellationToken ct)
@@ -308,9 +313,20 @@ public static class ScreenTools
             var screen = Screen(turn);
             var monitor = MonitorOf(turn, screen);
             static AxisTick Tick(JsonNode? n) => new(n?["px"]?.GetValue<double>() ?? double.NaN, n?["value"]?.GetValue<double>() ?? double.NaN);
-            if (args["x_ticks"] is not JsonArray { Count: 2 } xt || args["y_ticks"] is not JsonArray { Count: 2 } yt) return ToolResult.Fail("Give exactly two ticks on each axis.");
-            var axes = new AxisCalibration(Tick(xt[0]), Tick(xt[1]), Tick(yt[0]), Tick(yt[1]));
-            if (axes.Problem() is { } problem) return ToolResult.Fail($"The axes cannot be read like that: {problem}. Look at the screenshot again and give two labelled ticks per axis.");
+            // The axes: the ticks the model read, or (the usual case for a small model) found by Vernier from the tick labels on the screen.
+            AxisCalibration axes;
+            var axesFound = false;
+            if (args["x_ticks"] is JsonArray { Count: 2 } xt && args["y_ticks"] is JsonArray { Count: 2 } yt)
+            {
+                axes = new AxisCalibration(Tick(xt[0]), Tick(xt[1]), Tick(yt[0]), Tick(yt[1]));
+                if (axes.Problem() is { } problem) return ToolResult.Fail($"The axes cannot be read like that: {problem}. Look at the screenshot again and give two labelled ticks per axis, or leave x_ticks and y_ticks out and Vernier will read the tick labels itself.");
+            }
+            else if (AxisFinder.Find(screen.Items.Where(i => i.Kind is ScreenItemKind.Word or ScreenItemKind.Line).Select(i => (i.Text, screen.Image(i.Bounds)))) is { } found)
+            {
+                axes = found;
+                axesFound = true;
+            }
+            else return ToolResult.Fail("Vernier could not find the graph's tick labels on the screen (they may be too small to read). Read two labelled ticks on each axis from the screenshot and pass them as x_ticks and y_ticks: [{\"px\": pixel, \"value\": number}, {…}]. If the graph is small, call look with the graph as target first.");
             if (args["trace"] is not JsonObject && args["shapes"] is not JsonArray) return ToolResult.Fail("Give a trace of the curve or at least one shape.");
             string xUnit = args["x_unit"]?.GetValue<string>()?.Trim() ?? "", yUnit = args["y_unit"]?.GetValue<string>()?.Trim() ?? "";
             var unit = args["area_unit"]?.GetValue<string>()?.Trim() is { Length: > 0 } u ? u : string.Join("·", new[] { yUnit, xUnit }.Where(s => s.Length > 0));
@@ -333,11 +349,27 @@ public static class ScreenTools
             {
                 if (ink is null || src.Width <= 0) return ToolResult.Fail("Tracing needs the screenshot's pixels, which this turn does not have. Give shapes instead.");
                 double xFrom = trace["x_from"]?.GetValue<double>() ?? double.NaN, xTo = trace["x_to"]?.GetValue<double>() ?? double.NaN, y0 = trace["y_at_start"]?.GetValue<double>() ?? double.NaN, baseline = trace["baseline"]?.GetValue<double>() ?? 0;
-                if (!double.IsFinite(xFrom) || !double.IsFinite(xTo) || !double.IsFinite(y0) || xFrom == xTo) return ToolResult.Fail("trace needs x_from, x_to (different) and y_at_start as numbers.");
-                var start = ToRaw(axes.ToImage(xFrom, y0));
-                var end = ToRaw(axes.ToImage(xTo, y0));
-                var (found, lostAt) = ink.Trace((int)Math.Round(start.X), (int)Math.Round(end.X), start.Y);
-                if (found.Count < 6) return ToolResult.Fail($"No drawn curve was found near ({Number(xFrom)}, {Number(y0)}). Check y_at_start against the screenshot (the line's value at x_from) and the tick pixels, or give shapes instead.");
+                if (!double.IsFinite(xFrom) || !double.IsFinite(xTo) || xFrom == xTo) return ToolResult.Fail("trace needs x_from and x_to as two different numbers, e.g. {\"trace\": {\"x_from\": 0, \"x_to\": 10}}.");
+                if (xFrom > xTo) (xFrom, xTo) = (xTo, xFrom);
+                var left = ToRaw(axes.ToImage(xFrom, 0));
+                var right = ToRaw(axes.ToImage(xTo, 0));
+                // Where the curve is: near y_at_start if given, else found in a column a little inside the range (not on the axis itself).
+                var probeX = (int)Math.Round(left.X + (right.X - left.X) * 0.05);
+                double? startY = double.IsFinite(y0) ? ToRaw(axes.ToImage(xFrom, y0)).Y : null;
+                if (startY is null)
+                {
+                    var top = ToRaw(axes.ToImage(xFrom, Math.Max(axes.Y0.Value, axes.Y1.Value))).Y;
+                    var bottom = ToRaw(axes.ToImage(xFrom, Math.Min(axes.Y0.Value, axes.Y1.Value))).Y;
+                    var pad = Math.Abs(bottom - top) * 0.06;
+                    startY = ink.FirstCurveY(probeX, Math.Min(top, bottom) - pad, Math.Max(top, bottom) + pad, ToRaw(axes.ToImage(xFrom, baseline)).Y);
+                    if (startY is null) return ToolResult.Fail($"No drawn curve was found just right of x = {Number(xFrom)}. Give y_at_start (the curve's value there) or check x_from against the graph.");
+                }
+                else probeX = (int)Math.Round(left.X);
+                var back = ink.Trace(probeX, (int)Math.Round(left.X), startY.Value);
+                var ahead = ink.Trace(probeX, (int)Math.Round(right.X), startY.Value);
+                var found = Enumerable.Reverse(back.Points).Skip(1).Concat(ahead.Points).ToList();
+                var lostAt = ahead.LostAt;
+                if (found.Count < 6) return ToolResult.Fail($"No drawn curve could be followed from x = {Number(xFrom)}. Check x_from and x_to against the graph, give y_at_start (the curve's value at x_from), or give shapes instead.");
                 var simple = PolylineMath.Simplify(found, 1.5);
                 var data = simple.Select(p => axes.ToData(RawToImage(p).X, RawToImage(p).Y)).ToList();
                 // Net area (below the baseline counts negative, as displacement does) and the absolute area, by the trapezoid rule on the traced points.
@@ -363,7 +395,7 @@ public static class ScreenTools
                 });
                 report.AppendLine($"{name}: followed the drawn curve from x = {Number(Math.Round(lo, 3))} to {Number(Math.Round(hi, 3))} ({simple.Count} points) → area {WithUnit(Math.Round(net, 3))}" +
                                   (Math.Abs(abs - Math.Abs(net)) > 0.02 * Math.Max(1e-9, abs) ? $" (net; {WithUnit(Math.Round(abs, 3))} counting the part below the baseline as positive)" : ""));
-                if (lostAt is { } lost) report.AppendLine($"The curve could not be followed past x ≈ {Number(Math.Round(axes.ToData(RawToImage(new PxPoint(lost, start.Y)).X, 0).X, 2))}; the region ends there.");
+                if (lostAt is { } lost) report.AppendLine($"The curve could not be followed past x ≈ {Number(Math.Round(axes.ToData(RawToImage(new PxPoint(lost, startY.Value)).X, 0).X, 2))}; the region ends there.");
             }
 
             var number = 0;
@@ -415,6 +447,7 @@ public static class ScreenTools
             }).ConfigureAwait(false);
             var state = (ConcurrentDictionary<string, Guid>)turn.State.GetOrAdd(MarksKey, _ => new ConcurrentDictionary<string, Guid>());
             var ids = marks.Select(m => { var id = MarkIds(turn).Next('a'); state[id] = m.Id; return id; }).ToList();
+            if (axesFound) report.Insert(0, "Axes read by Vernier from the tick labels on the screen.\n");
             return ToolResult.Ok(report +
                 (marks.Count > 1 ? $"Total ≈ {WithUnit(total)}\n" : "") +
                 $"Computed by Vernier from your reading of the axes (x: {Number(axes.X0.Value)} at {axes.X0.Px:0} px, {Number(axes.X1.Value)} at {axes.X1.Px:0} px; y: {Number(axes.Y0.Value)} at {axes.Y0.Px:0} px, {Number(axes.Y1.Value)} at {axes.Y1.Px:0} px). " +
@@ -468,10 +501,11 @@ public static class ScreenTools
             "Draws a diagram of the problem on the learner's screen, on free space: seeing it is how problems about space, vectors, complex numbers and higher dimensions are understood. " +
             "kind space3d: points, vectors, lines, planes, segments in 3D (x right, y in, z up; 2D problems use z = 0). kind complex: numbers and circles on the Argand plane. kind hypercube: a cube or a tesseract (4D) for explaining dimensions above three by analogy. " +
             "Set measure and Vernier computes and draws the answer for you: skew_lines (the first two lines: shortest distance and the common perpendicular), point_plane (the first point and plane), angle (the first two vectors), cross_product (the first two vectors). Use the numbers it returns. " +
+            "kind forces: a free-body diagram: each force {type: force, a: [size, direction in degrees from +x anticlockwise; 270 = down], label}; angle = the incline's slope in degrees (0 = level); Vernier draws the body on its slope and adds the net force and its components along and across the slope. " +
             "Items: point {a}, vector {a: from, b: to}, line {a: point, b: direction, range: [t from, t to]}, plane {a: point, b: normal, range: [half size]}, segment {a, b}; complex: number {a: [re, im]}, circle {a: centre, b: [radius]}. label is a few characters (TeX is turned into symbols).",
             Schema(new JsonObject
             {
-                ["kind"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("space3d", "complex", "hypercube") },
+                ["kind"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("space3d", "complex", "hypercube", "forces") },
                 ["title"] = Str("A short heading, e.g. \"Shortest distance between skew lines\".", 80),
                 ["items"] = new JsonObject
                 {
@@ -481,7 +515,7 @@ public static class ScreenTools
                         ["type"] = "object", ["required"] = new JsonArray("type", "a"), ["additionalProperties"] = false,
                         ["properties"] = new JsonObject
                         {
-                            ["type"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("point", "vector", "line", "plane", "segment", "number", "circle") },
+                            ["type"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("point", "vector", "line", "plane", "segment", "number", "circle", "force") },
                             ["a"] = new JsonObject { ["type"] = "array", ["minItems"] = 2, ["maxItems"] = 3, ["items"] = new JsonObject { ["type"] = "number" } },
                             ["b"] = new JsonObject { ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 3, ["items"] = new JsonObject { ["type"] = "number" } },
                             ["label"] = Str("A few characters, e.g. L₁, u×v, z.", 28),
@@ -493,7 +527,7 @@ public static class ScreenTools
                 ["measure"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray([.. Measures.Select(m => (JsonNode)m)]) },
                 ["note"] = Str("One short line under the diagram (words; TeX is turned into symbols).", 120),
                 ["dim"] = new JsonObject { ["type"] = "integer", ["enum"] = new JsonArray(3, 4), ["description"] = "hypercube: 3 for a cube, 4 for a tesseract." },
-                ["angle"] = new JsonObject { ["type"] = "number", ["description"] = "hypercube: rotation in the x–w plane in degrees; default 30." },
+                ["angle"] = new JsonObject { ["type"] = "number", ["description"] = "forces: the slope of the incline in degrees (0 = level). hypercube: rotation in the x–w plane; default 30." },
                 ["near"] = Target(),
                 ["side"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("auto", "right", "below", "left", "above") },
             }, "kind"),
@@ -503,7 +537,7 @@ public static class ScreenTools
         {
             var screen = Screen(turn);
             var monitor = MonitorOf(turn, screen);
-            var kind = (args["kind"]?.GetValue<string>() ?? "space3d") switch { "complex" => DiagramKind.Complex, "hypercube" => DiagramKind.Hypercube, _ => DiagramKind.Space3D };
+            var kind = (args["kind"]?.GetValue<string>() ?? "space3d") switch { "complex" => DiagramKind.Complex, "hypercube" => DiagramKind.Hypercube, "forces" => DiagramKind.Forces, _ => DiagramKind.Space3D };
             var items = new List<DiagramItem>();
             var number = 0;
             foreach (var node in (args["items"] as JsonArray) ?? [])
@@ -565,6 +599,18 @@ public static class ScreenTools
                     }
                 }
             }
+            if (kind == DiagramKind.Forces)
+            {
+                if (items.Count == 0) throw new ToolException("A free-body diagram needs at least one force: {\"type\":\"force\",\"a\":[size, direction in degrees from +x, anticlockwise],\"label\":\"W = 14.7 N\"}.");
+                var slope = args["angle"]?.GetValue<double>() ?? 0;
+                var r = Geometry3D.Resultant(items.Select(i => (i.A[0], i.A[1])), slope);
+                static string N(double v) => DiagramBuilder.Number(Math.Round(v, 3));
+                if (r.Size > 1e-6) items.Add(new DiagramItem("force", [r.Size, r.Direction], null, $"ΣF = {N(r.Size)}", "result"));
+                caption.Add(r.Size < 1e-6 ? "The forces balance: ΣF = 0 (equilibrium)." : $"Net force ΣF = {N(r.Size)} at {N(r.Direction)}° (components {N(r.Fx)}, {N(r.Fy)})");
+                if (Math.Abs(slope) > 0.5) caption.Add($"Along the slope (up): {N(r.Along)}; across it (out of the surface): {N(r.Across)}");
+                report.AppendLine($"Net force {Math.Round(r.Size, 4)} at {Math.Round(r.Direction, 2)}° from +x (Fx {Math.Round(r.Fx, 4)}, Fy {Math.Round(r.Fy, 4)})" +
+                                  (Math.Abs(slope) > 0.5 ? $"; along the slope (up) {Math.Round(r.Along, 4)}, across it {Math.Round(r.Across, 4)}." : "."));
+            }
             if (kind == DiagramKind.Hypercube)
                 caption.Add(args["dim"]?.GetValue<int>() == 4
                     ? "A tesseract: 16 corners, 32 edges, 8 cubic cells. Green edges run along the 4th axis, joining the inner cube to the outer one, the way a cube drawn flat joins a small square to a large one."
@@ -572,7 +618,7 @@ public static class ScreenTools
             if (DiagramBuilder.Text(args["note"]?.GetValue<string>()) is { Length: > 0 } note) caption.Add(note);
 
             var spec = new DiagramSpec(kind, DiagramBuilder.Text(args["title"]?.GetValue<string>()) is { } t ? t : null, items, [.. caption.Take(DiagramBuilder.MaxCaption)],
-                args["dim"]?.GetValue<int>() == 4 ? 4 : 3, args["angle"]?.GetValue<double>() ?? 30);
+                args["dim"]?.GetValue<int>() == 4 ? 4 : 3, args["angle"]?.GetValue<double>() ?? (kind == DiagramKind.Forces ? 0 : 30));
             PxRect? near = null;
             ResolvedTarget? nearTarget = null;
             if (args["near"] is JsonObject nearSpec) { nearTarget = Resolve(screen, nearSpec); near = nearTarget.Bounds; }

@@ -90,18 +90,23 @@ public class ToolExecutorTests
         var (exec, tool, _) = Make();
         var turn = new ToolTurn(["echo"], default);
         Assert.Contains("text is required", (await exec.RunAsync("echo", Args("{}"), turn, default)).Text);
-        Assert.Contains("must be a string", (await exec.RunAsync("echo", Args("""{"text":5}"""), turn, default)).Text);
+        Assert.Contains("must be a string", (await exec.RunAsync("echo", Args("""{"text":{"a":1}}"""), turn, default)).Text); // an object cannot be made a string
         Assert.Contains("longer than 20", (await exec.RunAsync("echo", Args("""{"text":"012345678901234567890"}"""), turn, default)).Text);
         Assert.Contains("must be one of: a, b", (await exec.RunAsync("echo", Args("""{"text":"x","kind":"c"}"""), turn, default)).Text);
         Assert.Contains("whole number", (await exec.RunAsync("echo", Args("""{"text":"x","n":1.5}"""), turn, default)).Text);
         Assert.Contains("at most 3", (await exec.RunAsync("echo", Args("""{"text":"x","n":9}"""), turn, default)).Text);
-        Assert.Contains("not an allowed argument", (await exec.RunAsync("echo", Args("""{"text":"x","evil":1}"""), turn, default)).Text);
         Assert.Contains("box.x is required", (await exec.RunAsync("echo", Args("""{"text":"x","box":{}}"""), turn, default)).Text);
         Assert.Equal(0, tool.Runs);
         var ok = await exec.RunAsync("echo", Args("""{"text":"hi","n":2,"kind":"a","box":{"x":1}}"""), turn, default);
         Assert.False(ok.IsError);
         Assert.Equal("echo hi", ok.Text);
-        Assert.Equal(9, turn.Events.Count);
+        // What a small model commonly gets slightly wrong is repaired and runs, rather than being refused: a number for a
+        // string, a number written as text, an enum in another case, an unknown extra key (dropped, never passed on).
+        Assert.Equal("echo 5", (await exec.RunAsync("echo", Args("""{"text":5}"""), turn, default)).Text);
+        Assert.False((await exec.RunAsync("echo", Args("""{"text":"x","n":"2","kind":"A","evil":1}"""), turn, default)).IsError);
+        // A refusal shows the shape of a valid call.
+        Assert.Contains("arguments shaped like: {\"text\":", (await exec.RunAsync("echo", Args("{}"), turn, default)).Text);
+        Assert.Equal(11, turn.Events.Count); // every call is recorded, refused or not
     }
 
     [Fact]

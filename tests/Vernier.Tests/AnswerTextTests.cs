@@ -8,6 +8,24 @@ public class AnswerTextTests
     private static IReadOnlyList<AnswerSpan> Spans(string text) => AnswerText.Parse(text).Single().Spans;
 
     [Fact]
+    public void TeX_written_outside_math_delimiters_shows_as_symbols_never_as_markup()
+    {
+        var text = string.Concat(Spans(@"So \Delta v = 3 and the angle is \theta, with \frac{1}{2}mv^2 left.").Select(s => s.Text));
+        Assert.DoesNotContain('\\', text);
+        Assert.Contains("Δ", text);
+        Assert.Contains("θ", text);
+    }
+
+    [Fact]
+    public void A_formula_still_streaming_never_shows_its_raw_opening()
+    {
+        // Mid-stream the closing \) has not arrived yet: the learner must not see "\(" and backslash commands flash up.
+        var spans = Spans(@"The speed is \( v = \sqrt{2as");
+        Assert.DoesNotContain(spans, s => s.Text.Contains('\\'));
+        Assert.Contains(spans, s => s.Text.Contains("√"));
+    }
+
+    [Fact]
     public void Inline_tex_becomes_math()
     {
         var spans = Spans(@"The slope is \( \frac{dy}{dx} \) here.");
@@ -41,7 +59,6 @@ public class AnswerTextTests
 
     [Theory]
     [InlineData("It costs $5 and $10.")]          // money, not maths
-    [InlineData(@"Streaming \( x^{2")]             // unterminated: stays as text while the answer arrives
     [InlineData("a lone ^ caret and snake_case")]  // no superscript, no subscript
     public void Not_maths_stays_text(string text)
     {

@@ -73,8 +73,7 @@ public sealed class TutorPipeline(MasteryTutor tutor, Verifier verifier, Learnin
         Research.ResearchLedger? Ledger() => chat.Tools?.Turn.State.TryGetValue(Research.ResearchLedger.Key, out var l) == true ? l as Research.ResearchLedger : null;
         var asks = new List<string>();
         if (Research.ResearchGate.Check(demand, Ledger(), offered) is { } researchAsk) asks.Add(researchAsk);
-        var drew = chat.Tools?.Turn.Events.Any(e => e.Tool == "overlay_diagram" && !e.IsError) == true;
-        if (DimensionGate.Check(request.Visual ?? VisualDemand.None, drew, chat.Tools?.Turn.Allowed.Contains("overlay_diagram") == true) is { } visualAsk) asks.Add(visualAsk);
+        if (chat.Tools is { } turnTools && DrawingGate.Check(request.Visual ?? VisualDemand.None, turnTools.Turn.Events, turnTools.Turn.Allowed) is { } drawAsk) asks.Add(drawAsk);
         if (asks.Count > 0)
         {
             Enter(PipelineStage.Correct);

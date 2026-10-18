@@ -32,13 +32,22 @@ public class DiagramRenderTests
         new("number", [3, 4], null, "z = 3+4i", "main"), new("number", [-4, 3], null, "iz", "soft"), new("circle", [0, 0], [5], "|z| = 5", "soft"),
     ], ["|z| = 5, arg z ≈ 53.13°. Multiplying by i turns z a quarter-turn."]);
 
+    private static DiagramSpec Ramp()
+    {
+        // The box on the 30° ramp of the worksheet: weight 14.7 N, normal reaction, tension 26 N up the slope, friction 2.1 N down it.
+        var forces = new List<DiagramItem> { new("force", [14.7, 270], null, "W = 14.7 N", "main"), new("force", [14.7 * Math.Cos(Math.PI / 6), 120], null, "N", "main"), new("force", [26, 30], null, "T = 26 N", "main"), new("force", [2.1, 210], null, "F = 2.1 N", "warn") };
+        var r = Geometry3D.Resultant(forces.Select(f => (f.A[0], f.A[1])), 30);
+        forces.Add(new("force", [r.Size, r.Direction], null, $"ΣF = {DiagramBuilder.Number(Math.Round(r.Size, 2))} N", "result"));
+        return new DiagramSpec(DiagramKind.Forces, "Forces on the box", forces, [$"Along the slope (up): {DiagramBuilder.Number(Math.Round(r.Along, 2))} N"], 3, 30);
+    }
+
     private static readonly DiagramSpec Tesseract = new(DiagramKind.Hypercube, "A tesseract (4D cube)", [], ["16 corners, 32 edges; green edges run along the 4th axis."], 4, 30);
 
     [Fact]
     public void Every_kind_of_diagram_renders_a_dark_card_with_drawing_on_it() => WindowsRealApiTests.OnSta(() =>
     {
         var dir = Environment.GetEnvironmentVariable("VERNIER_SHOT_DIR");
-        foreach (var (name, spec) in new[] { ("skew", Skew()), ("torque", Forces), ("argand", Argand), ("tesseract", Tesseract) })
+        foreach (var (name, spec) in new[] { ("skew", Skew()), ("torque", Forces), ("argand", Argand), ("tesseract", Tesseract), ("forces", Ramp()) })
         {
             var card = DiagramRenderer.Render(spec, 440, 1.25);
             Assert.InRange(card.SizeDip.Height, 200, 640);

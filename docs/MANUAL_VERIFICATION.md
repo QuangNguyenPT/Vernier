@@ -110,6 +110,9 @@ Use a harmless target (Notepad, with nothing unsaved).
 - [ ] On a curved graph, ask for the displacement: the shaded region follows the drawn curve (not a few straight pieces floating off it).
 - [ ] No answer, label or card shows raw backslashes or braces.
 
+- [ ] Ask a long question (research and drawing, over two minutes): the tutor still draws at the end; Diagnostics' log shows "Tool … ok" lines.
+- [ ] A ramp or pulley question: a free-body diagram appears with the net force; move the window: the diagram card moves with it.
+
 ## 8c. Look and feel
 
 - [ ] Try each theme (Settings › Theme): the ask bar is see-through acrylic with rounded corners and a soft shadow on Windows 11; with "Transparency effects" off it is opaque.

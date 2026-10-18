@@ -171,6 +171,75 @@ public class ToolOverlayTests(ITestOutputHelper output)
         return Task.CompletedTask;
     });
 
+    [Fact]
+    public void The_tutors_own_shading_is_not_mistaken_for_the_screen_changing() => WindowsRealApiTests.OnAppSta(async () =>
+    {
+        // Regression: after graph_area shaded a graph, the next mark there was refused as "the screen has changed",
+        // because the check captured Vernier's own glass too, and the tutor gave up saying the graph was wrong.
+        using var dir = new TempDir();
+        AppServices.Initialize(dir.Path);
+        var page = WindowsRealApiTests.Show(new System.Windows.Controls.Border { Background = System.Windows.Media.Brushes.White }, 480, 360, "Vernier change-check test");
+        try
+        {
+            AppServices.Overlays.Start();
+            await Task.Delay(400);
+            var b = Vernier.App.Platform.Win32.WindowBounds(new System.Windows.Interop.WindowInteropHelper(page).Handle)!.Value;
+            var area = new PxRect(b.X + 60, b.Y + 80, 300, 200);
+            var shot = Vernier.App.Platform.ScreenCaptureService.Raw(Vernier.App.Platform.ScreenCaptureService.Grab(area));
+            var frame = new CapturedFrame([], "image/png", new CaptureGeometry(area, shot.Width, shot.Height), 0, "", "", 0, DateTimeOffset.UtcNow) { Raw = shot };
+            // The tutor shades most of that area (as graph_area does).
+            AppServices.Annotations.Add(new Annotation
+            {
+                Kind = AnnotationKind.Region, Source = "tutor", Color = AnnotationColors.Focus, StrokeWidth = 2.5, Lifetime = TimeSpan.FromMinutes(1),
+                Points = [new(area.X + 10, area.Y + 10), new(area.Right - 10, area.Y + 10), new(area.Right - 10, area.Bottom - 10), new(area.X + 10, area.Bottom - 10)],
+            });
+            await Task.Delay(800);
+            output.WriteLine($"old check (own glass included): {Vernier.App.Platform.ScreenCaptureService.HasChanged(frame, area)}");
+            Assert.False(await ScreenTools.ChangedSinceCaptureAsync(frame, [area]), "Vernier's own shading counted as the page changing");
+            page.Background = System.Windows.Media.Brushes.Black; // and a real change is still seen
+            ((System.Windows.Controls.Border)page.Content).Background = System.Windows.Media.Brushes.Black;
+            await Task.Delay(300);
+            Assert.True(await ScreenTools.ChangedSinceCaptureAsync(frame, [area]), "a real change was missed");
+        }
+        finally { page.Close(); AppServices.Shutdown(); }
+    });
+
+    [Fact]
+    public void Everything_the_tutor_drew_for_a_window_moves_with_it_cards_beside_it_included() => WindowsRealApiTests.OnAppSta(async () =>
+    {
+        // Regression: a note or diagram card sits on free space, often beside the window rather than inside it; when the
+        // learner moved the window, marks inside it moved but the card stayed behind.
+        using var dir = new TempDir();
+        AppServices.Initialize(dir.Path);
+        var page = WindowsRealApiTests.Show(new System.Windows.Controls.Border { Background = System.Windows.Media.Brushes.White }, 420, 300, "Vernier follow test");
+        page.Left = 150; page.Top = 150;
+        try
+        {
+            AppServices.Overlays.Start();
+            await Task.Delay(300);
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(page).Handle;
+            var b = Vernier.App.Platform.Win32.WindowBounds(hwnd)!.Value;
+            AppServices.Overlays.Track(hwnd);
+            var inside = new Annotation { Kind = AnnotationKind.Circle, Source = "tutor", Lifetime = TimeSpan.FromMinutes(1), Points = [new(b.X + 40, b.Y + 60), new(b.X + 140, b.Y + 100)] };
+            var card = new Annotation
+            {
+                Kind = AnnotationKind.Note, Source = "tutor", Lifetime = TimeSpan.FromMinutes(1), Note = new NoteContent("Step", [new NoteLine(NoteLineKind.Step, "beside the window")], false),
+                Points = [new(b.Right + 30, b.Y), new(b.Right + 330, b.Y + 160)],
+            };
+            AppServices.Annotations.Add(inside, card);
+            await Task.Delay(200);
+            page.Left += 120; page.Top += 60;
+            var moved = Vernier.App.Platform.Win32.WindowBounds(hwnd)!.Value;
+            var (dx, dy) = (moved.X - b.X, moved.Y - b.Y);
+            await Task.Delay(1200); // the overlay checks the window every 400 ms
+            var after = AppServices.Annotations.Items.ToDictionary(a => a.Id);
+            Assert.Equal(inside.Points[0].X + dx, after[inside.Id].Points[0].X, 1);
+            Assert.Equal(card.Points[0].X + dx, after[card.Id].Points[0].X, 1);
+            Assert.Equal(card.Points[0].Y + dy, after[card.Id].Points[0].Y, 1);
+        }
+        finally { page.Close(); AppServices.Shutdown(); }
+    });
+
     private static void DispatcherPump()
     {
         var frame = new System.Windows.Threading.DispatcherFrame();
@@ -296,15 +365,16 @@ public class LiveOperatorTests(ITestOutputHelper output)
     });
 
     // One live turn with the real Claude Code CLI and Vernier's tools over MCP; returns the turn for its events and state.
-    private async Task<(ToolTurn Turn, string Answer)> LiveTurnAsync(string dataDir, ScreenIndex screen, PxRect area, string[] tools, string question)
+    private async Task<(ToolTurn Turn, string Answer)> LiveTurnAsync(string dataDir, ScreenIndex screen, PxRect area, string[] tools, string question, CapturedFrame? frame = null)
     {
         var turn = new ToolTurn(tools, CancellationToken.None);
         turn.State[ScreenTools.ScreenKey] = screen;
+        if (frame is not null) turn.State[ScreenTools.FullFrameKey] = frame;
         turn.State[ScreenTools.AskKey] = new ScreenAsk(area, [], 0);
         using var grant = AppServices.Mcp!.Open(turn);
         var defs = AppServices.Tools.Registry.Definitions.Where(d => tools.Contains(d.Name)).ToList();
         var session = new Vernier.Core.Providers.ToolSession(defs, turn, AppServices.Tools, AppServices.Mcp);
-        var provider = new Vernier.Core.Providers.ClaudeCodeProvider(new Vernier.Core.Settings.ProviderSettings { Id = "claude-code", DisplayName = "Claude Code", Kind = Vernier.Core.Settings.ProviderKinds.ClaudeCode }, dataDir);
+        var provider = new Vernier.Core.Providers.ClaudeCodeProvider(new Vernier.Core.Settings.ProviderSettings { Id = "claude-code", DisplayName = "Claude Code", Kind = Vernier.Core.Settings.ProviderKinds.ClaudeCode, Model = Environment.GetEnvironmentVariable("VERNIER_LIVE_MODEL") }, dataDir); // e.g. haiku: the small model the learner uses
         var system = new MasteryTutor().BuildSystem(new Vernier.Core.Settings.LearnerProfile(), LearningSummary.None, false, tools: true);
         var request = new Vernier.Core.Providers.ChatRequest(system, [Vernier.Core.Providers.ChatMessage.User(question)], Tools: session);
         var result = await Vernier.Core.Providers.ChatRunner.CompleteAsync(provider, request, TimeSpan.FromSeconds(300), CancellationToken.None);
@@ -393,6 +463,79 @@ public class LiveOperatorTests(ITestOutputHelper output)
             Assert.Contains(drawn, e => e.Outcome.Contains("shortest distance 2.8284"));
             Assert.Contains(AppServices.Annotations.Items, a => a.Kind == AnnotationKind.Diagram);
             Assert.Matches(@"2\.83|2\.828|2\sqrt\{?2|2\s?√\s?2", answer);
+        }
+        finally { AppServices.Shutdown(); }
+    });
+
+    // What the production prompt carries for this question: the REQUIRED line and the code-made plan.
+    private static string Production(string question, string? screenText)
+    {
+        var demand = DimensionPolicy.Decide(question, screenText);
+        var plan = TurnPlan.Build(demand, Vernier.Core.Research.ResearchDemand.None, null, question, false, true);
+        return $"Drawing: REQUIRED for this answer, because {demand.Reason}. Call {demand.Tool}{(demand.Tool == "overlay_diagram" ? $" (kind {demand.Kind})" : "")} before you explain; an answer without it is sent back.\n{plan}\n";
+    }
+
+    [Fact]
+    public void A_model_draws_the_forces_on_a_ramp_and_uses_the_net_force_vernier_computed() => WindowsRealApiTests.OnAppSta(async () =>
+    {
+        if (Environment.GetEnvironmentVariable("VERNIER_LIVE") != "1") return;
+        using var dir = new TempDir();
+        AppServices.Initialize(dir.Path);
+        try
+        {
+            var area = Vernier.App.Platform.Win32.Monitors().First(m => m.IsPrimary).BoundsPhysical;
+            var screen = new ScreenIndex("o1", new CaptureGeometry(area, (int)(area.Width / 2), (int)(area.Height / 2)),
+                [Line("A 1.5 kg box is pulled up a ramp inclined at 30 degrees by a string with tension 26 N parallel to the ramp.", 20, 30),
+                 Line("Friction of 2.1 N acts down the ramp. Take g = 9.8 m/s2.", 20, 52), Line("Find the net force on the box.", 20, 74)], DateTimeOffset.UtcNow);
+            var question = "Find the net force on the box.";
+            var (turn, answer) = await LiveTurnAsync(dir.Path, screen, area, ScreenTools.Names, Production(question, screen.Describe()) + "Screen list:\n" + screen.Describe() + "\nQuestion: " + question);
+            var drawn = turn.Events.Where(e => e.Tool == "overlay_diagram" && !e.IsError).ToList();
+            Assert.NotEmpty(drawn);
+            Assert.Contains(AppServices.Annotations.Items, a => a.Kind == AnnotationKind.Diagram && a.Diagram!.Kind == Vernier.Core.Diagrams.DiagramKind.Forces);
+            // T − mg sin30 − F = 26 − 7.35 − 2.1 = 16.55 N up the slope.
+            Assert.Contains(drawn, e => e.Outcome.Contains("16.55"));
+            Assert.Matches(@"16\.5|16\.6", answer);
+        }
+        finally { AppServices.Shutdown(); }
+    });
+
+    [Fact]
+    public void A_model_shades_the_real_curve_with_only_the_x_range_and_vernier_reads_the_axes() => WindowsRealApiTests.OnAppSta(async () =>
+    {
+        if (Environment.GetEnvironmentVariable("VERNIER_LIVE") != "1") return;
+        using var dir = new TempDir();
+        AppServices.Initialize(dir.Path);
+        try
+        {
+            var area = Vernier.App.Platform.Win32.Monitors().First(m => m.IsPrimary).BoundsPhysical;
+            var geo = new CaptureGeometry(area, (int)(area.Width / 2), (int)(area.Height / 2));
+            int w = geo.ImageWidth, h = geo.ImageHeight;
+            // A real picture of a curved v–t graph: v = 12(1 − e^(−t/3)), t 0..10 s over x 200..1000 px, v 0..20 m/s over y 600..200 px.
+            var bgra = new byte[w * h * 4];
+            Array.Fill(bgra, (byte)255);
+            void Dot(int x, int y) { if ((uint)x < w && (uint)y < h) { var k = (y * w + x) * 4; bgra[k] = bgra[k + 1] = bgra[k + 2] = 20; } }
+            for (var x = 200; x <= 1000; x++) { Dot(x, 600); Dot(x, 601); }
+            for (var y = 200; y <= 600; y++) { Dot(200, y); Dot(201, y); }
+            for (var x = 200; x <= 1000; x++)
+            {
+                var t = (x - 200) / 80.0;
+                var y = (int)Math.Round(600 - 12 * (1 - Math.Exp(-t / 3)) * 20);
+                for (var d = -1; d <= 1; d++) Dot(x, y + d);
+            }
+            var frame = new CapturedFrame([], "image/png", geo, 0, "Graph", "acrord32", 0, DateTimeOffset.UtcNow) { Raw = new RawImage(bgra, w, h) };
+            List<ExtractedText> items = [Line("Velocity-time graph of a car. Find the displacement in the first 10 s.", 200, 140), Line("v / m s-1", 120, 180), Line("t / s", 1010, 610)];
+            for (var i = 0; i <= 10; i += 2) items.Add(new ExtractedText(i.ToString(), new PxRect(200 + i * 80 - 6, 612, 12, 14), 0.9, "ocr"));
+            for (var i = 0; i <= 20; i += 5) items.Add(new ExtractedText(i.ToString(), new PxRect(170, 600 - i * 20 - 7, 14, 14), 0.9, "ocr"));
+            var screen = new ScreenIndex("o1", geo, items, DateTimeOffset.UtcNow);
+            var question = "Find the displacement of the car in the first 10 s from the velocity-time graph.";
+            var (turn, answer) = await LiveTurnAsync(dir.Path, screen, area, ScreenTools.Names, Production(question, screen.Describe()) + "Screen list:\n" + screen.Describe() + "\nQuestion: " + question, frame);
+            var shaded = turn.Events.Where(e => e.Tool == "graph_area" && !e.IsError).ToList();
+            Assert.NotEmpty(shaded);
+            // ∫0..10 12(1 − e^(−t/3)) dt = 85.3 m; the traced region must be within a few percent of it.
+            var m = System.Text.RegularExpressions.Regex.Match(shaded[^1].Outcome, @"area (\d+(?:\.\d+)?)");
+            Assert.True(m.Success, shaded[^1].Outcome);
+            Assert.InRange(double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture), 82, 88.5);
+            Assert.Matches(@"8[4-7]", answer);
         }
         finally { AppServices.Shutdown(); }
     });

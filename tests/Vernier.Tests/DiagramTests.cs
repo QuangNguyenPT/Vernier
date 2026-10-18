@@ -85,6 +85,30 @@ public class DiagramTests
     }
 
     [Fact]
+    public void The_axes_are_read_from_the_tick_labels_so_the_model_needs_only_the_x_range()
+    {
+        // Tick labels as the screen reader finds them (image pixels), with other text around them.
+        (string, PxRect) At(string t, double cx, double cy) => (t, new PxRect(cx - 6, cy - 7, 12, 14));
+        var labels = new List<(string, PxRect)> { At("Time / s", 300, 400), At("15", 60, 50), At("Find the displacement", 200, 20) };
+        foreach (var (v, i) in new[] { ("0", 0), ("2", 1), ("4", 2), ("6", 3), ("8", 4), ("10", 5) }) labels.Add(At(v, 100 + i * 80, 372));
+        foreach (var (v, i) in new[] { ("0", 0), ("5", 1), ("10", 2), ("15", 3) }) labels.Add(At(v, 80, 350 - i * 100));
+        var axes = AxisFinder.Find(labels);
+        Assert.NotNull(axes);
+        Assert.Equal(new PxPoint(260, 250), axes!.ToImage(4, 5));
+        Assert.Null(AxisFinder.Find([At("1", 10, 10), At("7", 50, 10), At("3", 90, 10)])); // not in order: not an axis
+    }
+
+    [Fact]
+    public void The_curve_is_found_without_being_told_where_it_starts_and_the_axis_line_is_skipped()
+    {
+        var (ink, axes) = CurveShot();
+        var x = (int)axes.ToImage(1, 0).X;
+        var y = ink.FirstCurveY(x, 40, 360, axes.ToImage(0, 0).Y);
+        Assert.NotNull(y);
+        Assert.Equal(axes.ToImage(1, 0.9).Y, y!.Value, 1.5); // 0.9·√1, not the axis at 350
+    }
+
+    [Fact]
     public void Tracing_the_drawn_curve_gives_the_real_area_not_an_estimate()
     {
         var (ink, axes) = CurveShot();
@@ -99,25 +123,97 @@ public class DiagramTests
     }
 
     [Theory]
-    [InlineData("Find the shortest distance between the skew lines", true)]
-    [InlineData("Find the cross product of u and v", true)]
-    [InlineData("Write z = 3 + 4i in polar form", true)]
-    [InlineData("Explain a tesseract", true)]
-    [InlineData("What is the magnetic field around a wire", true)]
-    [InlineData("What is the speed of the mass on the inclined plane", false)]
-    [InlineData("Calculate the tension in the string", false)]
-    public void A_diagram_is_required_by_code_for_space_vector_complex_and_higher_dimension_questions(string question, bool required) =>
-        Assert.Equal(required, DimensionPolicy.Decide(question, null).Required);
+    [InlineData("Find the shortest distance between the skew lines", "overlay_diagram", "space3d")]
+    [InlineData("Find the cross product of u and v", "overlay_diagram", "space3d")]
+    [InlineData("Write z = 3 + 4i in polar form", "overlay_diagram", "complex")]
+    [InlineData("Explain a tesseract", "overlay_diagram", "hypercube")]
+    [InlineData("What is the speed of the mass on the inclined plane?", "overlay_diagram", "forces")]
+    [InlineData("Calculate the tension in the string", "overlay_diagram", "forces")]
+    [InlineData("Show that the terminal speed is given by this", "overlay_diagram", "forces")]
+    [InlineData("Find the displacement from the velocity-time graph", "graph_area", "space3d")]
+    [InlineData("Estimate the acceleration of the bottle at its maximum height", "graph_area", "space3d")]
+    public void A_drawing_is_required_by_code_and_the_right_tool_and_kind_are_chosen(string question, string tool, string kind)
+    {
+        var d = DimensionPolicy.Decide(question, null);
+        Assert.True(d.Required, question);
+        Assert.Equal(tool, d.Tool);
+        if (tool == "overlay_diagram") Assert.Equal(kind, d.Kind);
+    }
 
     [Fact]
-    public void The_screen_text_alone_can_demand_a_diagram_and_the_gate_asks_again_until_it_is_drawn()
+    public void Plain_questions_need_no_drawing() => Assert.False(DimensionPolicy.Decide("What does this word mean?", "An essay about the history of Rome").Required);
+
+    [Fact]
+    public void One_stray_word_or_code_on_the_screen_does_not_force_a_drawing()
+    {
+        Assert.False(DimensionPolicy.Decide("What is this?", "public List<Vector3> vectors = new();").Required);             // one term
+        Assert.False(DimensionPolicy.Decide("What is this?", "var force = vector * 2; // tension", screenIsStudyMaterial: false).Required); // a code editor
+        Assert.True(DimensionPolicy.Decide("What is this?", "A box on a ramp: find the tension and the friction force").Required);         // a real problem
+    }
+
+    private static Vernier.Core.Tools.ToolEvent Event(string tool, bool error, string outcome = "") => new("t", tool, "{}", error, outcome, TimeSpan.Zero, DateTimeOffset.UtcNow);
+
+    [Fact]
+    public void The_gate_asks_again_when_a_required_drawing_is_missing_or_a_failed_drawing_was_never_retried()
     {
         var demand = DimensionPolicy.Decide("explain this", "1 Find the shortest distance between the skew lines x = 1 + 2t, y = -t");
-        Assert.True(demand.Required);
-        Assert.NotNull(DimensionGate.Check(demand, diagramDrawn: false, toolOffered: true));
-        Assert.Null(DimensionGate.Check(demand, true, true));
-        Assert.Null(DimensionGate.Check(demand, false, toolOffered: false));
-        Assert.Null(DimensionGate.Check(VisualDemand.None, false, true));
+        Assert.True(demand.Required); // the screen text alone demands it
+        HashSet<string> offered = ["overlay_diagram", "graph_area", "overlay_marks"];
+        Assert.Contains("overlay_diagram", DrawingGate.Check(demand, [], offered));
+        Assert.Null(DrawingGate.Check(demand, [Event("overlay_diagram", false)], offered));
+        Assert.Null(DrawingGate.Check(demand, [], new HashSet<string>())); // the tool was not offered: nothing to demand
+
+        // A failure that was never retried: the answer is sent back with the error and how to fix it, even when nothing was required.
+        var retry = DrawingGate.Check(VisualDemand.None, [Event("graph_area", true, "The axes cannot be read like that: the two x ticks are only 4 px apart.")], offered);
+        Assert.Contains("4 px apart", retry);
+        Assert.Contains("call graph_area again", retry);
+        Assert.Null(DrawingGate.Check(VisualDemand.None, [Event("graph_area", true, "x"), Event("graph_area", false)], offered)); // fixed on the next try
+    }
+
+    [Fact]
+    public void The_plan_names_each_tool_with_a_call_to_copy_so_a_small_model_can_follow_it()
+    {
+        var plan = TurnPlan.Build(DimensionPolicy.Decide("What is the tension in the string?", null), new Vernier.Core.Research.ResearchDemand(true, "x"), "Blender", "What does the bevel modifier do?", true, true);
+        Assert.NotNull(plan);
+        Assert.Contains("1. web_research {\"query\":\"Blender bevel modifier", plan);
+        Assert.Contains("2. overlay_diagram {\"kind\":\"forces\"", plan);
+        Assert.Contains("never stop because of a tool error", plan);
+        Assert.Null(TurnPlan.Build(VisualDemand.None, Vernier.Core.Research.ResearchDemand.None, null, "hello", true, true));
+    }
+
+    [Fact]
+    public void The_net_force_and_its_components_along_a_slope_are_exact()
+    {
+        // A 1.5 kg box on a 30° slope: weight 14.7 N down, normal reaction 14.7·cos30 across the slope; friction 2.1 N down the slope.
+        var w = 14.7;
+        var r = Geometry3D.Resultant([(w, 270), (w * Math.Cos(Math.PI / 6), 120), (2.1, 210)], 30);
+        Assert.Equal(0, r.Across, 9);                           // nothing out of the surface
+        Assert.Equal(-(w * 0.5 + 2.1), r.Along, 9);             // down the slope: mg sin30 + friction
+        Assert.Equal(Math.Abs(r.Along), r.Size, 9);
+        Assert.Equal(0, Geometry3D.Resultant([(5, 0), (5, 180)]).Size, 9); // balanced
+    }
+
+    [Fact]
+    public void Arguments_a_small_model_gets_slightly_wrong_are_repaired_instead_of_refused()
+    {
+        var schema = System.Text.Json.Nodes.JsonNode.Parse("""
+            {"type":"object","additionalProperties":false,"required":["kind","items"],"properties":{
+              "kind":{"type":"string","enum":["space3d","forces"]},
+              "angle":{"type":"number"},
+              "items":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["type","a"],"properties":{
+                 "type":{"type":"string"},"a":{"type":"array","items":{"type":"number"}}}}}}}
+            """)!.AsObject();
+        var args = System.Text.Json.Nodes.JsonNode.Parse("""
+            {"Kind":"Forces","angle":"30","items":"[{\"type\":\"force\",\"a\":[\"14.7\",270],\"colour\":\"red\"}]","note":"extra"}
+            """)!.AsObject();
+        var fixedArgs = Vernier.Core.Tools.SchemaCheck.Repair(schema, args);
+        Assert.Null(Vernier.Core.Tools.SchemaCheck.Validate(schema, fixedArgs));
+        Assert.Equal("forces", fixedArgs["kind"]!.GetValue<string>());
+        Assert.Equal(30, fixedArgs["angle"]!.GetValue<double>());
+        Assert.Equal(14.7, fixedArgs["items"]![0]!["a"]![0]!.GetValue<double>());
+        var point = Vernier.Core.Tools.SchemaCheck.Repair(schema, System.Text.Json.Nodes.JsonNode.Parse("""{"kind":"space3d","items":[{"type":"point","a":{"x":1,"y":2,"z":3}}]}""")!.AsObject());
+        Assert.Equal(3, point["items"]![0]!["a"]!.AsArray().Count);
+        Assert.Contains("\"kind\":\"space3d\"", Vernier.Core.Tools.SchemaCheck.Example(schema)); // what a refusal shows as the shape to use
     }
 
     [Fact]
@@ -125,7 +221,28 @@ public class DiagramTests
     {
         Assert.Null(DiagramBuilder.Problem(DiagramKind.Space3D, new("vector", [0, 0, 0], [1, 2, 3])));
         Assert.Contains("cannot be drawn", DiagramBuilder.Problem(DiagramKind.Complex, new("plane", [0, 0], [0, 0, 1])));
+        Assert.Contains("other way", DiagramBuilder.Problem(DiagramKind.Forces, new("force", [-3, 90])));
         Assert.Contains("zero vector", DiagramBuilder.Problem(DiagramKind.Space3D, new("plane", [0, 0, 0], [0, 0, 0])));
         Assert.Contains("numbers", DiagramBuilder.Problem(DiagramKind.Space3D, new("point", [double.NaN, 0, 0])));
+    }
+}
+
+/// <summary>Regression: tools made ready while the learner typed died two minutes after the bar opened, in the middle of long answers.</summary>
+public class WarmTurnTests
+{
+    [Fact]
+    public async Task A_warm_turn_that_a_question_took_keeps_its_tools_after_the_warm_lifetime()
+    {
+        var expired = 0;
+        var (taken, expiry) = Vernier.App.TutorSession.WarmTurn(["overlay_marks"], TimeSpan.FromMilliseconds(60), () => Interlocked.Increment(ref expired));
+        expiry.Dispose(); // the question took it
+        await Task.Delay(200);
+        Assert.True(taken.IsActive, "the answer's tools must not end on the warm timer");
+        Assert.Equal(0, expired);
+
+        var (unused, _) = Vernier.App.TutorSession.WarmTurn(["overlay_marks"], TimeSpan.FromMilliseconds(60), () => Interlocked.Increment(ref expired));
+        await Task.Delay(300);
+        Assert.Equal(1, expired); // an unused one is still thrown away on time
+        Assert.True(unused.IsActive); // by the discard, which revokes its grant, not by killing a turn an answer might hold
     }
 }

@@ -89,12 +89,16 @@ public static partial class AnswerText
         void Plain()
         {
             if (plain.Length == 0) return;
-            spans.AddRange(Scripts(plain.ToString()));
+            // TeX the model wrote outside \( \) is shown as the symbols it means, never as markup.
+            var t = plain.ToString();
+            spans.AddRange(Scripts(t.Contains('\\') ? TexPlain.Clean(t) : t));
             plain.Clear();
         }
         for (var i = 0; i < text.Length;)
         {
             if (Enclosed(text, i, @"\(", @"\)") is { } m1) { Plain(); spans.Add(new(SpanKind.Math, m1.Inner)); i = m1.Next; continue; }
+            // A formula still streaming (its closing has not arrived): show it as symbols until it can be typeset.
+            if (string.CompareOrdinal(text, i, @"\(", 0, 2) == 0) { Plain(); spans.Add(new(SpanKind.Text, TexPlain.Clean(text[(i + 2)..]))); break; }
             if (text[i] == '$' && Enclosed(text, i, "$", "$") is { } m2 && LooksLikeMath(m2.Inner)) { Plain(); spans.Add(new(SpanKind.Math, m2.Inner)); i = m2.Next; continue; }
             if (text[i] == '`' && Enclosed(text, i, "`", "`") is { } c) { Plain(); spans.Add(new(SpanKind.Code, c.Inner)); i = c.Next; continue; }
             if (text[i] == '*' && Enclosed(text, i, "**", "**") is { } b) { Plain(); spans.Add(new(SpanKind.Bold, b.Inner)); i = b.Next; continue; }

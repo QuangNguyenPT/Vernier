@@ -129,7 +129,11 @@ public sealed class MasteryTutor
         if (context?.App is { } app) user.AppendLine($"The learner is working in {app.Name} ({app.Category}). {app.Hints}");
         // Decided by Vernier's code for this turn, not a suggestion: the answer is checked against it.
         if (visual is { Required: true } vd)
-            user.AppendLine($"Diagram: REQUIRED for this answer, because {vd.Reason}. Call overlay_diagram first (space3d, complex or hypercube; set measure so Vernier works the numbers out), then explain around what the learner sees. Above four dimensions, draw the 3D slice or the tesseract and explain the rest by analogy.");
+            user.AppendLine($"Drawing: REQUIRED for this answer, because {vd.Reason}. Call {vd.Tool}{(vd.Tool == "overlay_diagram" ? $" (kind {vd.Kind})" : "")} before you explain; an answer without it is sent back.");
+        // Decided by code for this turn: the steps, with the calls half filled in. Small models follow it; it is checked afterwards.
+        if (TurnPlan.Build(visual ?? VisualDemand.None, research ?? Research.ResearchDemand.None, context?.App?.Name, question,
+                tools?.Turn.Allowed.Contains("web_research") == true, tools is not null && (visual?.Tool is { } t && tools.Turn.Allowed.Contains(t))) is { } plan)
+            user.AppendLine(plan);
         if (research is { Required: true } r)
             user.AppendLine($"Research: REQUIRED for this answer, because {r.Reason}. Call web_research first and read at least {Research.ResearchPolicy.MinSources} working sources, then explain in your own words for this learner.");
         else if (tools?.Turn.Allowed.Contains("web_research") == true)

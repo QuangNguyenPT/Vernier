@@ -133,7 +133,8 @@ public sealed class AnnotationStore
     /// Re-anchors marks whose target lay inside a window that moved. Marks whose target would
     /// leave the desktop are dropped rather than drawn in a wrong place.
     /// </summary>
-    public void Rebase(PxRect oldBounds, PxRect newBounds, PxRect desktop)
+    /// <param name="belongs">Marks that belong to the window wherever they sit (a card beside it on free space): they move too.</param>
+    public void Rebase(PxRect oldBounds, PxRect newBounds, PxRect desktop, Func<Annotation, bool>? belongs = null)
     {
         var dx = newBounds.X - oldBounds.X;
         var dy = newBounds.Y - oldBounds.Y;
@@ -141,7 +142,7 @@ public sealed class AnnotationStore
         var result = new List<Annotation>();
         foreach (var a in _items)
         {
-            var anchored = a.TargetRegion is { } t ? oldBounds.Contains(t) : a.Points.All(oldBounds.Contains);
+            var anchored = belongs?.Invoke(a) == true || (a.TargetRegion is { } t ? oldBounds.Contains(t) : a.Points.All(oldBounds.Contains));
             if (!anchored) { result.Add(a); continue; }
             var moved = a.Offset(dx, dy);
             if (moved.Points.All(desktop.Contains)) result.Add(moved);

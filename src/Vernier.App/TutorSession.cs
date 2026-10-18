@@ -65,6 +65,18 @@ public sealed class TutorSession
     private int _observations;
     // A tool turn granted and a CLI started while the learner is still typing (see Prewarm).
     private (ToolTurn Turn, IDisposable Grant, string ProviderKey)? _prewarmed;
+    // When the waiting CLI and its unused grant are thrown away. Not the turn's own lifetime: a question that takes the
+    // warm turn keeps its tools for the whole answer (they used to die two minutes after the bar opened, mid-answer).
+    private CancellationTokenSource? _prewarmExpiry;
+
+    /// <summary>A tool turn made ahead of the question, and the timer that discards it if no question takes it within <paramref name="life"/>.</summary>
+    public static (ToolTurn Turn, CancellationTokenSource Expiry) WarmTurn(IEnumerable<string> names, TimeSpan life, Action expired)
+    {
+        var turn = new ToolTurn(names, CancellationToken.None);
+        var expiry = new CancellationTokenSource(life);
+        expiry.Token.Register(expired);
+        return (turn, expiry);
+    }
 
     public TutorSession(AppSettings settings, ProviderFactory providers, TutorPipeline pipeline, LearningStore store,
         ScreenCaptureService capture, Observer observer, AnnotationStore annotations, IWindowCapturePolicyService policy, DiagnosticLog log)
@@ -269,9 +281,10 @@ public sealed class TutorSession
         if (_prewarmed is { } warm && warm.Turn.IsActive && warm.ProviderKey == ProviderKey(chosen) && ClaudeCodeProvider.HasWarm) return;
         DiscardPrewarm();
         if (_providers.Create(chosen) is not ClaudeCodeProvider provider) return;
-        // The grant expires with the waiting CLI (two minutes), so an unused one cannot linger.
+        // An unused grant goes with the waiting CLI (two minutes), so it cannot linger; a used one lives as long as its answer.
         var names = ToolNamesFor(provider);
-        var turn = new ToolTurn(names, new CancellationTokenSource(ClaudeCodeProvider.WarmLifetime).Token);
+        ToolTurn turn = null!;
+        (turn, _prewarmExpiry) = WarmTurn(names, ClaudeCodeProvider.WarmLifetime, () => AppServices.OnUi(() => { if (_prewarmed?.Turn == turn) DiscardPrewarm(); }));
         var grant = AppServices.Mcp.Open(turn);
         provider.Prewarm(_pipeline.SystemPromptFor(provider, _settings.AllowComputerControl, tools: true), new ToolSession(Definitions(names), turn, AppServices.Tools, AppServices.Mcp));
         _prewarmed = (turn, grant, ProviderKey(chosen));
@@ -282,6 +295,8 @@ public sealed class TutorSession
     {
         if (_prewarmed is { } warm) warm.Grant.Dispose();
         _prewarmed = null;
+        _prewarmExpiry?.Dispose();
+        _prewarmExpiry = null;
         ClaudeCodeProvider.DiscardWarm();
     }
 
@@ -372,6 +387,8 @@ public sealed class TutorSession
                     toolTurn = warm.Turn;
                     toolGrant = warm.Grant;
                     _prewarmed = null;
+                    _prewarmExpiry?.Dispose(); // taken: the answer owns it now, no timer may end it
+                    _prewarmExpiry = null;
                 }
                 else
                 {
@@ -385,7 +402,8 @@ public sealed class TutorSession
                 toolTurn.State[ScreenTools.FrameKey] = captured;
                 toolTurn.State[ScreenTools.FullFrameKey] = captured;
                 toolTurn.State[ScreenTools.AskKey] = screen!;
-                toolTurn.EventAdded += e => AppServices.OnUi(() => { ToolEvents.Add(e); ToolActivity?.Invoke(e); });
+                // Name, result and time only: arguments and outcomes can quote the screen, so they are never logged.
+                toolTurn.EventAdded += e => { _log.Info($"Tool {e.Tool} {(e.IsError ? "failed" : "ok")} in {e.Took.TotalMilliseconds:0} ms."); AppServices.OnUi(() => { ToolEvents.Add(e); ToolActivity?.Invoke(e); }); };
                 tools = new ToolSession(Definitions(names), toolTurn, AppServices.Tools, AppServices.Mcp);
             }
 
@@ -417,7 +435,9 @@ public sealed class TutorSession
                 : Vernier.Core.Research.ResearchDemand.None;
             var request = new TutorRequest(mode, question, context, [.. _history], _sessionId, notesContext, _settings.AllowComputerControl, attachments, tools, index, work, episodes,
                 _memory.Render(MasteryTutor.HistoryTurns), research,
-                tools?.Turn.Allowed.Contains("overlay_diagram") == true ? DimensionPolicy.Decide(question, context?.JoinedText) : VisualDemand.None);
+                tools?.Turn.Allowed.Contains("overlay_diagram") == true
+                    ? DimensionPolicy.Decide(question, context?.JoinedText, context?.App?.Category != "Programming" && !IsTerminal(screen is null ? null : ProcessName(screen.Foreground)))
+                    : VisualDemand.None);
             called = true;
             var turn = await Task.Run(() => _pipeline.RunAsync(request, provider, checker, callbacks, ct), ct);
             var allowActions = _settings.AllowComputerControl && context is not null && ActionWindow != 0;
@@ -510,6 +530,8 @@ public sealed class TutorSession
         PendingActions = [];
         Changed?.Invoke();
     }
+
+    private static bool IsTerminal(string? process) => process?.ToLowerInvariant() is "windowsterminal" or "wt" or "cmd" or "powershell" or "pwsh" or "conhost" or "wsl" or "bash" or "mintty";
 
     private static string ToolStatus(string tool) => tool switch
     {

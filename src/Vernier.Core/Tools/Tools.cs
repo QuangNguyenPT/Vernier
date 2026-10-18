@@ -73,7 +73,7 @@ public sealed class ToolTurn
     private readonly ConcurrentQueue<ToolEvent> _events = new();
     private int _calls;
 
-    public ToolTurn(IEnumerable<string> allowed, CancellationToken outer, int maxCalls = 24)
+    public ToolTurn(IEnumerable<string> allowed, CancellationToken outer, int maxCalls = 40)
     {
         Id = Convert.ToHexString(RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
         Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -170,8 +170,9 @@ public sealed class ToolExecutor(ToolRegistry registry, IToolApprover approver, 
         if (registry.Resolve(name) is not { } tool || !turn.Allowed.Contains(name))
             return ToolResult.Fail($"There is no tool '{name}' available in this turn. Available: {string.Join(", ", turn.Allowed.Order())}.");
         if (!turn.TryCount()) return ToolResult.Fail($"Tool call limit for this turn ({turn.MaxCalls}) reached. Finish your answer without more tools.");
+        args = SchemaCheck.Repair(tool.Definition.InputSchema, args); // what small models commonly get wrong is fixed, not refused
         if (SchemaCheck.Validate(tool.Definition.InputSchema, args) is { } problem)
-            return ToolResult.Fail($"Invalid arguments for {name}: {problem}");
+            return ToolResult.Fail($"Invalid arguments for {name}: {problem}. Call {name} again with arguments shaped like: {SchemaCheck.Example(tool.Definition.InputSchema)}");
         if (gate?.Invoke(tool.Definition) is { } refusal) return ToolResult.Fail(refusal);
 
         using var run = CancellationTokenSource.CreateLinkedTokenSource(ct, turn.Cancellation);
@@ -236,6 +237,73 @@ public static class Json
 public static class SchemaCheck
 {
     public static string? Validate(JsonObject schema, JsonObject args) => Check(schema, args, "");
+
+    /// <summary>
+    /// Fixes the shapes models (small ones most) get wrong, before validation: a number written as a string, a JSON object
+    /// or list sent as a string, one value where a list is wanted, a point as {x, y} where a list is wanted, an enum in the
+    /// wrong case, true/false as text, and unknown keys (dropped). What cannot be fixed is left for <see cref="Validate"/> to refuse.
+    /// </summary>
+    public static JsonObject Repair(JsonObject schema, JsonObject args) => Fix(schema, args.DeepClone()) as JsonObject ?? args;
+
+    private static JsonNode? Fix(JsonObject schema, JsonNode? value)
+    {
+        if (value is null) return null;
+        var type = schema["type"]?.GetValue<string>();
+        if (value is JsonValue text && text.GetValueKind() == JsonValueKind.String && type is "object" or "array")
+        {
+            try { if (JsonNode.Parse(text.GetValue<string>()) is { } parsed) value = parsed; }
+            catch (System.Text.Json.JsonException) { }
+        }
+        switch (type)
+        {
+            case "object" when value is JsonObject obj:
+            {
+                var props = schema["properties"] as JsonObject ?? [];
+                var closed = schema["additionalProperties"]?.GetValue<bool>() == false;
+                var fixedObj = new JsonObject();
+                foreach (var (key, sub) in obj.ToList())
+                {
+                    var match = props.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase));
+                    if (match.Value is JsonObject subSchema) fixedObj[match.Key] = Fix(subSchema, sub?.DeepClone());
+                    else if (!closed) fixedObj[key] = sub?.DeepClone();
+                }
+                return fixedObj;
+            }
+            case "array":
+            {
+                var items = schema["items"] as JsonObject;
+                if (value is JsonObject point && items?["type"]?.GetValue<string>() is "number" or "integer" && point.ContainsKey("x"))
+                    value = new JsonArray(new[] { "x", "y", "z" }.Where(point.ContainsKey).Select(k => point[k]?.DeepClone()).ToArray());
+                if (value is not JsonArray arr) arr = [value.DeepClone()];
+                return items is null ? arr : new JsonArray(arr.Select(x => Fix(items, x?.DeepClone())).ToArray());
+            }
+            case "number" or "integer" when value is JsonValue v && v.GetValueKind() == JsonValueKind.String:
+                return double.TryParse(v.GetValue<string>().Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d)
+                    ? (type == "integer" && Math.Abs(d - Math.Round(d)) < 1e-9 ? JsonValue.Create((long)Math.Round(d)) : JsonValue.Create(d)) : value;
+            case "string" when value is JsonValue v && v.GetValueKind() == JsonValueKind.Number:
+                return JsonValue.Create(v.ToJsonString());
+            case "string" when value is JsonValue v && v.GetValueKind() == JsonValueKind.String && schema["enum"] is JsonArray options:
+                var s = v.GetValue<string>().Trim();
+                return options.Select(o => o?.GetValue<string>()).FirstOrDefault(o => string.Equals(o, s, StringComparison.OrdinalIgnoreCase)) is { } canonical ? JsonValue.Create(canonical) : value;
+            case "boolean" when value is JsonValue v && v.GetValueKind() == JsonValueKind.String:
+                return bool.TryParse(v.GetValue<string>().Trim(), out var b) ? JsonValue.Create(b) : value;
+        }
+        return value;
+    }
+
+    /// <summary>A minimal valid call for a schema (required arguments with placeholder values): shown when arguments are refused.</summary>
+    public static string Example(JsonObject schema) => (Sample(schema) ?? new JsonObject()).ToJsonString();
+
+    private static JsonNode? Sample(JsonObject schema) => schema["type"]?.GetValue<string>() switch
+    {
+        "object" => new JsonObject((schema["required"] as JsonArray ?? []).Select(r => r?.GetValue<string>()).Where(r => r is not null && schema["properties"]?[r!] is JsonObject)
+            .Select(r => KeyValuePair.Create(r!, Sample((JsonObject)schema["properties"]![r!]!)))),
+        "array" => new JsonArray(Enumerable.Repeat(0, Math.Max(1, (int)(Json.Number(schema["minItems"]) ?? 1))).Select(_ => schema["items"] is JsonObject i ? Sample(i) : null).ToArray()),
+        "string" => schema["enum"] is JsonArray e ? e[0]?.DeepClone() : JsonValue.Create("…"),
+        "number" or "integer" => JsonValue.Create(0),
+        "boolean" => JsonValue.Create(false),
+        _ => null,
+    };
 
     private static string? Check(JsonObject schema, JsonNode? value, string path)
     {

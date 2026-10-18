@@ -127,6 +127,8 @@ public sealed class AnnotationOverlayManager : IDisposable
     private string? _trackedTitle;
     // What was under each tutor mark when it appeared: how a mark is found again after the content moved (MarkRefit).
     private readonly Dictionary<Guid, MarkAnchor> _anchors = [];
+    // The window each tutor mark was drawn for. A card on free space beside the window belongs to it as much as a circle inside it.
+    private readonly Dictionary<Guid, nint> _owner = [];
     private readonly IPatchMatcher _matcher = NativePatchMatcher.Best;
     private bool _looking;
     private PxRect? _watch;
@@ -433,6 +435,9 @@ public sealed class AnnotationOverlayManager : IDisposable
     {
         _watchBaseline = null; // the marks are part of the picture being compared
         _settledAt = DateTime.UtcNow + SettleTime;
+        foreach (var a in _store.Items)
+            if (a.Source == "tutor" && _trackedWindow != 0) _owner.TryAdd(a.Id, _trackedWindow);
+        foreach (var gone in _owner.Keys.Where(id => _store.Items.All(a => a.Id != id)).ToList()) _owner.Remove(gone);
         foreach (var g in _glass) g.Sync();
         ShowOnlyWhenNeeded();
         SyncDismissButtons();
@@ -514,8 +519,10 @@ public sealed class AnnotationOverlayManager : IDisposable
         _store.PruneExpired(DateTimeOffset.UtcNow);
         if (_trackedWindow != 0 && _trackedBounds is { } old && Win32.WindowBounds(_trackedWindow) is { } current && current != old)
         {
-            _store.Rebase(old, current, Win32.VirtualDesktop());
-            foreach (var (id, anchor) in _anchors.ToList())
+            var window = _trackedWindow;
+            bool Belongs(Annotation a) => _owner.TryGetValue(a.Id, out var w) && w == window;
+            _store.Rebase(old, current, Win32.VirtualDesktop(), Belongs);
+            foreach (var (id, anchor) in _anchors.Where(kv => _owner.TryGetValue(kv.Key, out var w) && w == window).ToList())
                 _anchors[id] = anchor with { PatchArea = anchor.PatchArea with { X = anchor.PatchArea.X + current.X - old.X, Y = anchor.PatchArea.Y + current.Y - old.Y } };
             _trackedBounds = current;
             // A moved window takes its marks with it; a resized one reflows, which the comparison below will catch.

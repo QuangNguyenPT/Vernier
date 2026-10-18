@@ -77,6 +77,7 @@ public static class DiagramRenderer
             {
                 case DiagramKind.Space3D: DrawSpace(dc); break;
                 case DiagramKind.Complex: DrawComplex(dc); break;
+                case DiagramKind.Forces: DrawForces(dc); break;
                 default: DrawHypercube(dc); break;
             }
         }
@@ -250,6 +251,47 @@ public static class DiagramRenderer
                 Arrow(dc, P(0, 0), at, tone);
                 Text(dc, it.Label, at + new Vector(6, 2), tone, 14);
             }
+        }
+
+        // ---- a free-body diagram: the body on its slope, every force from its centre, lengths to scale ----
+        private void DrawForces(DrawingContext dc)
+        {
+            var forces = _spec.Items.Where(i => i.Type == "force").ToList();
+            var largest = Math.Max(1e-9, forces.Max(f => f.A[0]));
+            double cx = _w / 2, cy = _h / 2 + 4, reach = Math.Min(_w, _h) * 0.40;
+            var slope = _spec.Angle * Math.PI / 180;
+            var along = new Vector(Math.Cos(slope), -Math.Sin(slope));   // up the slope, on screen (y down)
+            var down = new Vector(Math.Sin(slope), Math.Cos(slope));     // into the surface
+            var c = new Point(cx, cy);
+            const double bw = 54, bh = 34;
+            // The surface under the body, and the incline's angle at its foot.
+            var foot = c + down * (bh / 2);
+            var a = foot - along * (_w * 0.46);
+            var b = foot + along * (_w * 0.46);
+            dc.DrawLine(PenOf(Palette.Axis, 2), a, b);
+            if (Math.Abs(_spec.Angle) > 0.5)
+            {
+                var low = slope > 0 ? a : b;
+                dc.DrawLine(PenOf(Color.FromArgb(120, Palette.Axis.R, Palette.Axis.G, Palette.Axis.B), 1.4, true), low, new Point(low.X + (slope > 0 ? 1 : -1) * _w * 0.6, low.Y));
+                Text(dc, $"{DiagramBuilder.Number(Math.Round(_spec.Angle, 1))}°", new Point(low.X + (slope > 0 ? 34 : -64), low.Y - 2), Palette.Soft, 13);
+            }
+            // The body, turned to sit on the slope.
+            dc.PushTransform(new RotateTransform(-_spec.Angle, cx, cy));
+            dc.DrawRoundedRectangle(Frozen(Color.FromArgb(70, Palette.Soft.R, Palette.Soft.G, Palette.Soft.B)), PenOf(Palette.Soft, 1.6), new Rect(cx - bw / 2, cy - bh / 2, bw, bh), 6, 6);
+            dc.Pop();
+            foreach (var f in forces)
+            {
+                var deg = f.A[1] * Math.PI / 180;
+                var length = Math.Max(48, reach * f.A[0] / largest); // always longer than the body, so a small force is still seen
+                var tip = c + new Vector(Math.Cos(deg), -Math.Sin(deg)) * length;
+                var tone = Palette.Tone(f.Tone);
+                Arrow(dc, c, tip, tone, f.Tone == "result" ? 2.8 : 2.2);
+                var dir = new Vector(Math.Cos(deg), -Math.Sin(deg));
+                // The result often runs along another force: its label goes to the other side of its arrow, not on top of the other label.
+                var side = f.Tone == "result" ? new Vector(-dir.Y, dir.X) * 30 : dir * 10;
+                Text(dc, f.Label, tip + side + new Vector(-12, 8), tone, 14);
+            }
+            dc.DrawEllipse(Frozen(Palette.Ink), null, c, 2.6, 2.6);
         }
 
         // ---- a cube or a tesseract ----
