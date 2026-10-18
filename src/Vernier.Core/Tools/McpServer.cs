@@ -170,7 +170,7 @@ public sealed class McpServer : IAsyncDisposable
             ["protocolVersion"] = Versions.Contains(asked) ? asked : Versions[0],
             ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false } },
             ["serverInfo"] = new JsonObject { ["name"] = ServerName, ["title"] = "Vernier", ["version"] = typeof(McpServer).Assembly.GetName().Version?.ToString(3) ?? "1" },
-            ["instructions"] = "Vernier's tools for the learner's current question: look at and mark the screen, recall the session and context, operate the application or notes only after the learner approves each step.",
+            ["instructions"] = Agents.OperatorGuide.McpInstructions,
         };
     }
 

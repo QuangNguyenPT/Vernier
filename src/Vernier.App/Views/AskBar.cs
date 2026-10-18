@@ -148,8 +148,8 @@ public sealed class AskBar : Window
         }
         Quiet(_steps, "Review steps…", "See the steps the tutor proposes to do in your application, and approve or refuse them", () => _ = AssistedInput.ReviewAndRunAsync(this));
         _steps.SetResourceReference(ForegroundProperty, "Accent");
-        Quiet(_undo, "Undo mark", "Remove the last mark", () => AppServices.Annotations.Undo());
-        Quiet(_clear, "Clear marks", "Remove every mark from the screen", () => AppServices.Annotations.Clear());
+        Quiet(_undo, "Undo mark", "Take back your last pen stroke, or remove the tutor's last mark", () => { if (!AppServices.Overlays.UndoInk()) AppServices.Annotations.Undo(); });
+        Quiet(_clear, "Clear marks", "Take back your pen strokes and remove every mark from the screen", () => { AppServices.Overlays.ClearInk(); AppServices.Annotations.Clear(); });
         Quiet(new Button(), "Workspace", "Open the full conversation, review and settings", () => { (Application.Current.MainWindow as MainWindow)?.ShowWorkspace(); });
         Quiet(new Button(), "Close", "Hide the bar (Esc). Vernier stays in the notification area.", HideBar);
         // Which model answers, and a way to change it for the questions that follow.
@@ -304,7 +304,7 @@ public sealed class AskBar : Window
         _stripe.SetResourceReference(Shape.FillProperty, Session.IsBusy ? "Accent" : "You");
         _send.Content = Session.IsBusy ? "Stop" : "Ask";
         _hint.Text = Session.IsBusy ? "Working…"
-            : hasInk ? "Type your question about what you marked, then Enter"
+            : hasInk ? "Your marks fade, but they go with your question. Type it, then Enter"
             : overlays.PenArmed ? "Circle what you mean, then ask here"
             : _attachments.Count > 0 ? "Ask about what you attached"
             : "Ask about your screen";
@@ -315,7 +315,7 @@ public sealed class AskBar : Window
         _model.ToolTip = "Model for your questions: " + (Session.ModelOverride is { } o ? TutorSession.Describe(o) : AppServices.Settings.AutoRoute ? "chosen by task (Settings › Models)" : TutorSession.Describe(AppServices.Settings.ActiveProvider!)) + ". Click to change.";
         _steps.Visibility = Session.PendingActions.Count > 0 && !Session.IsBusy ? Visibility.Visible : Visibility.Collapsed;
         _input.IsEnabled = !Session.IsBusy;
-        _undo.IsEnabled = AppServices.Annotations.CanUndo;
+        _undo.IsEnabled = AppServices.Annotations.CanUndo || AppServices.Overlays.HasInk;
         _clear.IsEnabled = AppServices.Annotations.Items.Count > 0;
         _status.Text = Session.IsBusy ? StageText(Session.Stage)
             : Session.CaptureBlocked && AppServices.Settings.AllowScreenCapture ? Session.CaptureBlockedReason

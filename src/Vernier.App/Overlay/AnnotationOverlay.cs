@@ -111,6 +111,10 @@ public sealed class AnnotationOverlayManager : IDisposable
     // The native light (Vernier.Native): composited by DWM, drawn on its own thread, a real travelling crest.
     // The WPF strips above are the fallback when the native module is not built or cannot start.
     private readonly List<NativeGlow> _lights = [];
+    // The pen's ink, one native layer per monitor (own thread, fades by itself); WPF marks that expire are the fallback.
+    private readonly List<NativeInk> _inks = [];
+    /// <summary>How long a finished stroke stays visible before it fades. The stroke is still sent with the next question.</summary>
+    public static readonly TimeSpan InkHold = TimeSpan.FromMilliseconds(1400), InkFade = TimeSpan.FromMilliseconds(350);
 
     /// <summary>The capture light is the native one (true) or the WPF strips (false).</summary>
     public bool NativeLight => _lights.Count > 0;
@@ -161,6 +165,14 @@ public sealed class AnnotationOverlayManager : IDisposable
         {
             var glass = new AnnotationSurfaceWindow(monitor, _store);
             glass.StrokeDrawn += OnStroke;
+            if (NativeInk.TryCreate(monitor.BoundsPhysical, 0xFFFFD84D, 4) is { } ink)
+            {
+                ink.SetTiming((int)InkHold.TotalMilliseconds, (int)InkFade.TotalMilliseconds);
+                ink.StrokeEnded += points => OnUi(() => OnStroke(points));
+                AppServices.Policy.Register(ink.Hwnd, "Pen ink");
+                glass.Ink = ink;
+                _inks.Add(ink);
+            }
             AppServices.TrackWindow(glass, $"Glass ({monitor.BoundsPhysical.Width:0}×{monitor.BoundsPhysical.Height:0})");
             glass.Show(); // created once so its handle and capture policy exist; hidden again below while empty
             glass.SetPenArmed(PenArmed);
@@ -189,14 +201,50 @@ public sealed class AnnotationOverlayManager : IDisposable
         if (PenArmed == armed) return;
         PenArmed = armed;
         if (armed) _ink.Clear();
+        if (!armed) foreach (var i in _inks) i.Clear(); // the pen is down: whatever was still fading goes at once
         foreach (var g in _glass) g.SetPenArmed(armed);
         ShowOnlyWhenNeeded();
         ApplySignal();
         PenChanged?.Invoke();
     }
 
-    /// <summary>Forgets which strokes belong to the current question. The ink itself stays on the glass until cleared.</summary>
-    public void ConsumeInk() => _ink.Clear();
+    /// <summary>The question was sent: the strokes belong to it now and leave the screen at once. Only the tutor's marks stay.</summary>
+    public void ConsumeInk()
+    {
+        _ink.Clear();
+        ClearInkVisuals();
+    }
+
+    /// <summary>The last stroke, taken back (Undo in the ask bar). False when there is none.</summary>
+    public bool UndoInk()
+    {
+        if (_ink.Count == 0) return false;
+        var last = _ink[^1];
+        _ink.RemoveAt(_ink.Count - 1);
+        _store.RemoveWhere(a => a.Id == last.Id);
+        if (_ink.Count == 0) ClearInkVisuals();
+        PenChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>Every pending stroke, taken back (Clear marks).</summary>
+    public void ClearInk()
+    {
+        if (_ink.Count == 0) return;
+        _ink.Clear();
+        ClearInkVisuals();
+        PenChanged?.Invoke();
+    }
+
+    public bool HasInk => _ink.Count > 0;
+
+    private void ClearInkVisuals()
+    {
+        foreach (var i in _inks) i.Clear();
+        _store.RemoveWhere(a => a.Source == "user"); // the fallback strokes
+    }
+
+    private static void OnUi(Action action) => AppServices.OnUi(action);
 
     /// <summary>Turns the edge wave on or off: on from the moment a capture starts until its answer is done.</summary>
     private bool _watching;
@@ -273,9 +321,18 @@ public sealed class AnnotationOverlayManager : IDisposable
         MarksWentStale?.Invoke();
     }
 
+    /// <summary>The always-on-top windows of Vernier that float over the work (the ask bar, dialogs): places a note card must stay clear of.</summary>
+    public IReadOnlyList<PxRect> OwnWindowRects()
+    {
+        var passive = _glass.Cast<Window>().Concat(_edges).Select(w => new WindowInteropHelper(w).Handle).Concat(_lights.Select(l => l.Hwnd)).Concat(_inks.Select(i => i.Hwnd)).ToHashSet();
+        const long topmost = 0x8; // WS_EX_TOPMOST
+        return [.. AppServices.Policy.States.Where(s => !passive.Contains(s.Hwnd) && Win32.IsWindowVisible(s.Hwnd) && ((long)Win32.GetWindowLongPtr(s.Hwnd, Win32.GWL_EXSTYLE) & topmost) != 0)
+            .Select(s => Win32.WindowBounds(s.Hwnd)).Where(b => b is not null).Select(b => b!.Value)];
+    }
+
     private bool OwnWindowOver(PxRect area)
     {
-        var passive = _glass.Cast<Window>().Concat(_edges).Select(w => new WindowInteropHelper(w).Handle).Concat(_lights.Select(l => l.Hwnd)).ToHashSet();
+        var passive = _glass.Cast<Window>().Concat(_edges).Select(w => new WindowInteropHelper(w).Handle).Concat(_lights.Select(l => l.Hwnd)).Concat(_inks.Select(i => i.Hwnd)).ToHashSet();
         // Only the always-on-top ones (the ask bar, dialogs): they float over the work without being part of it.
         // The workspace is an ordinary window; if it really covers the area, the marked thing is hidden and the marks should go.
         const long topmost = 0x8; // WS_EX_TOPMOST
@@ -296,17 +353,22 @@ public sealed class AnnotationOverlayManager : IDisposable
     /// <summary>The light's colour: the tutor's signal blue, a little brighter than the marks so it reads at the screen edge.</summary>
     public static uint LightColour { get; set; } = 0xFF6CC4FF;
 
-    private void OnStroke(IReadOnlyList<PxPoint> stroke)
+    internal void OnStroke(IReadOnlyList<PxPoint> stroke)
     {
-        var mark = new Annotation { Kind = AnnotationKind.Freehand, Points = PolylineMath.Simplify(stroke, 0.75), Color = AnnotationColors.Learner, StrokeWidth = 4, Source = "user", Meaning = "drawn by the learner", Lifetime = TimeSpan.FromMinutes(10) };
+        // The learner's ink is a question in progress, not a mark: it is kept to be sent, and shown only briefly.
+        // Without the native layer the stroke is shown as a mark that expires by itself; the same object is kept for the question.
+        var mark = new Annotation
+        {
+            Kind = AnnotationKind.Freehand, Points = PolylineMath.Simplify(stroke, 0.75), Color = AnnotationColors.Learner, StrokeWidth = 4, Source = "user", Meaning = "drawn by the learner",
+            Lifetime = _inks.Count == 0 ? InkHold + InkFade : null,
+        };
         _ink.Add(mark);
-        _store.Add(mark);
+        if (_inks.Count == 0) _store.Add(mark);
+        PenChanged?.Invoke();
     }
 
     private void OnStoreChanged()
     {
-        // Undo or Clear may have removed ink the pending question was about.
-        _ink.RemoveAll(i => _store.Items.All(a => a.Id != i.Id));
         _watchBaseline = null; // the marks are part of the picture being compared
         _settledAt = DateTime.UtcNow + SettleTime;
         foreach (var g in _glass) g.Sync();
@@ -343,6 +405,8 @@ public sealed class AnnotationOverlayManager : IDisposable
         _glass.Clear();
         _edges.Clear();
         _lights.Clear();
+        foreach (var i in _inks) i.Dispose();
+        _inks.Clear();
         _timer.Stop();
     }
 

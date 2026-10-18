@@ -369,6 +369,7 @@ public sealed class TutorSession
                 index = new ScreenIndex($"o{Interlocked.Increment(ref _observations)}", captured.Geometry, context.Layout, captured.At, captured.WindowHandle, ScreenTools.Ids(toolTurn));
                 toolTurn.State[ScreenTools.ScreenKey] = index;
                 toolTurn.State[ScreenTools.FrameKey] = captured;
+                toolTurn.State[ScreenTools.FullFrameKey] = captured;
                 toolTurn.State[ScreenTools.AskKey] = screen!;
                 toolTurn.EventAdded += e => AppServices.OnUi(() => { ToolEvents.Add(e); ToolActivity?.Invoke(e); });
                 tools = new ToolSession(Definitions(names), toolTurn, AppServices.Tools, AppServices.Mcp);
@@ -410,7 +411,7 @@ public sealed class TutorSession
             LastUsage = turn.Usage;
             _history.Add(ChatMessage.User(MasteryTutor.Remember(question, context, attachments)));
             // What the tutor did with its tools stays in the conversation, so "the second mark" means something next turn.
-            var did = tools?.Turn.Events.Where(e => !e.IsError && e.Tool == "overlay_mark").Select(e => e.Outcome).ToList() ?? [];
+            var did = tools?.Turn.Events.Where(e => !e.IsError && e.Tool is "overlay_mark" or "overlay_marks" or "overlay_write").Select(e => e.Outcome).ToList() ?? [];
             // Outcomes quote screen text, so they are fenced like any other screen text.
             _history.Add(ChatMessage.Assistant(turn.Output.Text + (did.Count > 0 ? "\n" + Vernier.Core.Security.Untrusted.Wrap("marks-drawn", string.Join(" | ", did), 1500) : "")));
             LastTurn = turn;
@@ -493,7 +494,10 @@ public sealed class TutorSession
 
     private static string ToolStatus(string tool) => tool switch
     {
-        "overlay_mark" => "marking the screen",
+        "overlay_mark" or "overlay_marks" => "marking the screen",
+        "overlay_write" => "writing on the screen",
+        "session_recall" => "recalling earlier in the session",
+        "computer_act" => "operating the application",
         "overlay_clear" => "clearing marks",
         "look" => "looking closer",
         "find_on_screen" => "finding it on screen",

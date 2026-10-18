@@ -2,12 +2,12 @@ using Vernier.Core.Geometry;
 
 namespace Vernier.Core.Annotations;
 
-public enum AnnotationKind { Arrow, Bracket, Highlight, Circle, Path, Freehand, Label, Underline, Point }
+public enum AnnotationKind { Arrow, Bracket, Highlight, Circle, Path, Freehand, Label, Underline, Point, Note }
 
 /// <summary>
 /// A structured mark on the screen. <see cref="Points"/> are virtual-desktop physical pixels:
 /// Arrow = from, to; Bracket/Highlight/Circle = two opposite corners of the bounding box;
-/// Path/Freehand = polyline; Label = anchor.
+/// Path/Freehand = polyline; Label = anchor; Note = the card's top-left and bottom-right corners.
 /// </summary>
 public sealed record Annotation
 {
@@ -17,6 +17,8 @@ public sealed record Annotation
     public string Color { get; init; } = AnnotationColors.Focus;
     public double StrokeWidth { get; init; } = 2.5;
     public string? Label { get; init; }
+    /// <summary>For <see cref="AnnotationKind.Note"/>: what is written on the card.</summary>
+    public NoteContent? Note { get; init; }
     /// <summary>Why the mark exists, e.g. "the term that was dropped".</summary>
     public string Meaning { get; init; } = "";
     public string? TargetDescription { get; init; }

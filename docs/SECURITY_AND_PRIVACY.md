@@ -21,6 +21,7 @@ Between questions, Vernier keeps context by code, on this machine:
 
 - **Metadata** (on by default): which app and window is in front and for how long (Windows event hooks, no polling of other processes' memory), the browser's address (accessibility tree, browsers only; query strings, fragments and sign-in parts removed), the media session's title and position (Windows media controls). Private browser windows (title masked; address and screen text not kept), password managers and apps you list are skipped.
 - **Screen text** (needs the screen permission and "also read the text"): when the window in front changes and then settles, its text is read by local OCR at most every 4 seconds. That text is kept in memory only and is never written to disk. A small light at the top centre of the screen is on while it reads.
+- **Pen ink**: your strokes are drawn by Vernier's own overlay (excluded from captures when you ask for exclusion), kept in memory as points until you send the question or take them back, and never written to disk.
 - **Marks**: while the tutor's marks are on screen, a 48×48 grayscale thumbnail of the marked area is compared about once a second so marks that no longer point at the right thing are removed. Memory only.
 
 All of it stops in Pause and in Share-Safe. Questions typed in the workspace never capture the screen.
@@ -66,7 +67,8 @@ During a screen question the model can call Vernier's tools, through native tool
 | Tool | Risk | What protects you |
 |---|---|---|
 | `find_on_screen`, `look` | Observe | Screen permission; the capture light is on |
-| `overlay_mark`, `overlay_clear` | Annotate | Marks only; refused when the area changed since the capture; the tutor cannot remove your ink |
+| `overlay_mark`, `overlay_marks`, `overlay_write`, `overlay_clear` | Annotate | Marks and note cards only (text the tutor wrote, never anything read from your files); refused when the area changed since the capture; a card is placed on free space and never over Vernier's own windows; the tutor cannot remove your ink |
+| `session_recall` | Observe | Earlier turns of this conversation only; output fenced |
 | `get_context` | Observe | Context setting; output fenced |
 | `video_info` | Observe | Only YouTube and Vimeo addresses, sent to their own oEmbed endpoints; output fenced |
 | `media_control` | Control | Play/pause/seek of the media session only |

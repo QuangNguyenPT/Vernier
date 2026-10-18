@@ -10,6 +10,7 @@ C++ is used only where it reaches a Windows facility WPF cannot use well, in one
 |---|---|---|
 | DXGI Desktop Duplication (`duplication.cpp`) | Frames stay on the GPU; only the region asked for is copied; a box-filtered luma thumbnail for change detection | GDI BitBlt |
 | WIC scale + PNG encode (`imaging.cpp`) | High-quality cubic downscale and encode without WPF's imaging stack. Measured only ~15 % faster than WPF, so the app does not use it yet | WPF `PngBitmapEncoder` (what the app uses) |
+| Pen ink (`ink.cpp`) | The stroke follows the cursor on a thread of its own (a 1 ms poll while the button is down), each segment is rasterised into the 256 px tiles under it and handed to DWM, so a stroke never waits for WPF; it holds 1.4 s after the pen lifts, fades over 0.35 s by itself, and the finished stroke is reported back for the question. Measured 27 ms from call to pixels on screen with the UI thread blocked | WPF live stroke, shown as marks that expire by themselves |
 | Edge light (`glow.cpp`) | DirectComposition surfaces on their own thread paced by `DwmFlush`, so the travelling wave keeps ~60 fps while the UI thread is busy; a no-redirection-bitmap window that is click-through and excluded from capture | Four WPF strip windows per monitor |
 
 `Platform/Native.cs` wraps it (`Native.Available`, `DuplicationSession`, `NativeGlow`, `EncodePng`); a missing or failing DLL degrades, it never breaks the app. Overlay marks, OCR and UI Automation stay managed: they are already OS services or within a frame in WPF.
@@ -131,9 +132,26 @@ Context is a system that runs all the time, built by code; a model is never requ
 - **Persistence**: SQLite schema v3 `episodes` (no screen text), 14-day retention, forget hour/today/all.
 - **Selection**: at ask time episodes are ranked by recency × term overlap with the question plus priors (current, media, asked before), rendered as a bounded, sourced, aged block fenced as `context`, and shown in the ask bar as a chip. `EpisodeSummariser` may add a summary with a local model only.
 
+## Drawing and writing on the screen
+
+The tutor never writes drawing code. Everything it puts on the glass is a tool call that Vernier draws natively:
+
+| Tool | What it does | Cost |
+|---|---|---|
+| `overlay_marks` | up to 12 marks in one call (circle, highlight, underline, arrow, point, bracket, label); a mark that cannot be placed is reported by number and the rest are still drawn; one stale check per mark, one UI hop for all | one round trip instead of one per mark (12 ms for three marks in the live test) |
+| `overlay_mark` | a single mark | |
+| `overlay_write` | a **note card**: a dark template (dark in every theme, because it floats over arbitrary content) with the tutor's blue rule, a title, lines in a handwriting face (Ink Free) or clean print (Sitka), formulas typeset by WpfMath, the final answer boxed. The card is drawn once to a bitmap and wipes in | the card lands on free space with no coordinates from the model (346 ms in the live test, mostly the first formula layout) |
+| `overlay_clear` | removes the tutor's marks and cards (never the learner's ink) | |
+
+**Free space** (`Core/Geometry/FreeSpace`): the captured pixels are divided into 24 px cells; a cell is busy when it holds detail (a wide spread of brightness: text, lines, diagrams). Located text and controls, the tutor's earlier marks, the learner's ink and Vernier's own always-on-top windows (the ask bar) are marked busy too, and busy cells are spread one cell outward. A summed-area table finds the window of the card's size with no busy cell nearest the thing the note is about, preferring its right (where people write), then below. The card tries its width, then two narrower and taller sizes; if nowhere is empty it takes the least busy spot and says it covers something.
+
+**The learner's ink is a question in progress, not a mark.** It is drawn by the native layer, leaves the screen by itself, and is kept (as points, never in the annotation store when the native layer runs) to be painted into the capture and sent with the next question. Sending the question removes it at once; Undo and Clear marks take strokes back.
+
+**Production instructions** live in one file, `Core/Agents/OperatorGuide.md` (embedded). It feeds the tutor's system prompt, the MCP server's `instructions` (a compact version, so any MCP client is told how to use it) and the installable skill `.claude/skills/vernier-operator/SKILL.md`; a test keeps the skill identical to the guide and checks the guide names every tool.
+
 ## Tools (`Core/Tools`, `App/Agent`)
 
-`ToolRegistry` + `ToolExecutor`: resolve → per-turn grant → schema validation → setting gate → (Act/Consequential) `PreviewAsync` then approval → execute → untrusted fencing. Native tool calling for Anthropic, OpenAI-compatible and Gemini; a loopback MCP server for the Claude Code CLI. Tool sets: `ScreenTools` (find, mark, clear, look), `ContextTools` (context, media control, video info), `ComputerTools` (`computer_act`), `NoteTools` (search, read, write) and `GoogleTools` (read, append); `TutorSession.ToolNamesFor` decides which are offered for a provider. `UiApprover` shows a non-modal topmost card that closes on timeout.
+`ToolRegistry` + `ToolExecutor`: resolve → per-turn grant → schema validation → setting gate → (Act/Consequential) `PreviewAsync` then approval → execute → untrusted fencing. Native tool calling for Anthropic, OpenAI-compatible and Gemini; a loopback MCP server for the Claude Code CLI. Tool sets: `ScreenTools` (find, mark, marks, write, clear, look), `ContextTools` (context, media control, video info), `ComputerTools` (`computer_act`), `NoteTools` (search, read, write) and `GoogleTools` (read, append); `TutorSession.ToolNamesFor` decides which are offered for a provider. `UiApprover` shows a non-modal topmost card that closes on timeout.
 
 ## Answers
 

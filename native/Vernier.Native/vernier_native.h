@@ -2,6 +2,7 @@
 //  - Desktop Duplication: GPU screen capture with exact dirty rectangles (continuous context, fast asks).
 //  - WIC: high-quality downscale and PNG encoding of a capture.
 //  - Edge light: the capture light, composited by DWM and animated on its own thread.
+//  - Ink: the pen's stroke, drawn on its own thread straight into DWM, fading away by itself.
 // C ABI only. Every function returns 0 on success or a negative VN_E_* / HRESULT on failure; callers fall back to managed code.
 #pragma once
 #include <stdint.h>
@@ -62,3 +63,22 @@ VN_API void* vn_glow_hwnd(void* handle);
 // Frames presented since creation (tests and diagnostics).
 VN_API int64_t vn_glow_frames(void* handle);
 VN_API void vn_glow_destroy(void* handle);
+
+// ---- Ink ----
+// Called on the ink thread when a stroke ends: count points as absolute physical x,y pairs (xy has count*2 values).
+typedef void (*vn_ink_cb)(const int32_t* xy, int32_t count, void* context);
+// A click-through, topmost layer over one monitor. Strokes are drawn as the cursor moves, without the app's UI thread.
+VN_API int32_t vn_ink_create(vn_rect monitor, uint32_t argb, int32_t width_px, vn_ink_cb callback, void* context, void** handle);
+VN_API int32_t vn_ink_start(void* handle, int32_t watch_button);
+VN_API int32_t vn_ink_stop(void* handle);
+// Draws a stroke from supplied points (absolute physical x,y pairs) as if the cursor had made it (tests, replays).
+VN_API int32_t vn_ink_feed(void* handle, const int32_t* xy, int32_t count);
+// Removes the ink at once (the question was sent, or the pen was put down).
+VN_API int32_t vn_ink_clear(void* handle);
+// How long finished ink stays, then how long it takes to fade (milliseconds).
+VN_API int32_t vn_ink_timing(void* handle, int32_t hold_ms, int32_t fade_ms);
+VN_API void* vn_ink_hwnd(void* handle);
+VN_API int64_t vn_ink_segments(void* handle);
+// The last HRESULT a draw call returned (0 if none), for diagnostics.
+VN_API int32_t vn_ink_error(void* handle);
+VN_API void vn_ink_destroy(void* handle);

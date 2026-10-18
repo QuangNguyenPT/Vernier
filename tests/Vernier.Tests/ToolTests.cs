@@ -276,6 +276,7 @@ public class McpServerTests
         Assert.Equal("2025-11-25", newest["protocolVersion"]!.GetValue<string>()); // offers its own newest instead
         Assert.Equal("vernier", newest["serverInfo"]!["name"]!.GetValue<string>());
         Assert.NotNull(newest["capabilities"]!["tools"]);
+        Assert.Equal(OperatorGuide.McpInstructions, newest["instructions"]!.GetValue<string>()); // the server says how to use it
         Assert.Equal(HttpStatusCode.OK, (await Send(server.Url, t, HttpMethod.Post, """{"jsonrpc":"2.0","id":2,"method":"ping"}""", "2025-06-18")).Status);
         Assert.Equal(HttpStatusCode.BadRequest, (await Send(server.Url, t, HttpMethod.Post, """{"jsonrpc":"2.0","id":2,"method":"ping"}""", "1999-01-01")).Status);
 

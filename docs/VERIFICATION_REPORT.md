@@ -4,6 +4,32 @@ Date: 2026-10-11 · Machine: Windows 11 24H2, build 26100, x64, one display 2560
 
 This report separates what was **run against the real thing**, what was **simulated**, and what was **not verified**. A simulated test shows the logic is right; it is not evidence that a real service or OS path works.
 
+## Revision 7 status (version 0.4.0, 2026-10-18): read this first
+
+Run on Windows 11 build 26100, display on, Claude Code CLI signed in. The desktop tests briefly open windows on the screen; the pen's end-to-end path (a real mouse drag) was **not** exercised because that would move the user's real pointer.
+
+| Command | Result |
+|---|---|
+| `scripts/publish.ps1` | **358 of 358 tests passed** in Release; self-contained publish 169.5 MB; smoke test of the published exe passed (native module loads, MCP server answers `initialize` and lists the tools) |
+| `VERNIER_LIVE=1`, `LiveOperatorTests` | Passed: a real model (Claude Code) given only the operator guide called `overlay_marks` once (three marks, 12 ms) and `overlay_write` once (a six-line card, 346 ms) and answered the worksheet correctly (B, 4 m/s). Two live runs of the earlier MCP test also passed |
+
+### What changed and how it was checked
+
+| Claim | Evidence |
+|---|---|
+| The pen is drawn by a native layer, independent of the UI thread | `NativeTests`: a 40-segment stroke was on the screen 27 ms after the call (exact ink colour read back from the screen) while the UI thread was blocked; the finished stroke was reported back with every point; it faded and the layer hid by itself; Clear was immediate. A first version using partial-rectangle surface updates failed (`E_INVALIDARG`) and was replaced by 256 px tiles |
+| The learner's ink does not stay | `InkPolicyTests`: ink is held for the question and shown only briefly; Undo takes back one stroke and its visible copy (this test found that Undo left the visible stroke behind; fixed); sending removes the ink and keeps the tutor's marks. Native fade timing in the test above |
+| A note card is dark, handwritten, typeset, placed on free space | `NoteCardTests` (renders to a bitmap; images in `docs/screenshots/note-card-*.png`, looked at); `FreeSpaceTests` (7: plain vs busy cells, beside the problem on the empty side, side preference, known obstacles, crowded screen covered as little as possible, oversize card cut down); `ToolOverlayTests` through the real executor and store on a synthetic worksheet: the card landed on the empty right half |
+| Several marks in one call | `ToolOverlayTests`: three marks in one call, one unplaceable target reported without stopping the rest, bad input refused with a usable message, clear removes marks and card |
+| One guide feeds the tutor, the MCP server and the skill | Test: `.claude/skills/vernier-operator/SKILL.md` equals `Core/Agents/OperatorGuide.md`, the guide names every tool offered, the system prompt contains it, and the MCP `initialize` result carries the compact `instructions` |
+
+### Not verified / known limits
+
+- A real mouse or pen drag through the native layer (the cursor poll, `GetAsyncKeyState`, pen and touch ending via `Stop`) was not exercised; the feed path that draws and reports a stroke was. The first real use should be checked with the manual list (section 8b2).
+- Photon-level latency (pixels on a monitor after a physical movement) was not measured; 27 ms is from the call to the pixels read back by a screen capture.
+- Free-space placement was tested on synthetic worksheets and on one live model run with a synthetic screen; it has not been judged on real worksheets like the three the owner supplied. The card never covers Vernier's own windows but can cover content the pixel contrast cannot see (a flat colour block).
+- The handwriting face (Ink Free) ships with Windows 10 and later; where it is missing the card falls back to Segoe Print or Segoe UI.
+
 ## Revision 6 status (version 0.4.0, 2026-10-17): read this first
 
 Run on Windows 11 build 26100 with the session unlocked and the display on; Claude Code CLI signed in.

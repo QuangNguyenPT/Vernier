@@ -84,6 +84,11 @@ One expressive motion exists: the capture wave, because it carries the most impo
 
 The ask bar rises 8 px into place as it fades in (180–220 ms, ease-out); with animations off it only fades. Everything else changes state instantly.
 
+## The note card and the pen
+
+- **Note card** (`overlay_write`): always dark (`#0C141B` at 94 % with a `#45596A` hairline and a 10 px radius), the tutor's blue rule on the left, a small-caps blue title, steps in handwriting (Ink Free, 19 px, ink colour), formulas typeset at 1.25×, the result in a blue-outlined box, checks in green with a tick, errors in red with a cross, asides in italic soft ink. It wipes in from the top in 420 ms (instantly with Windows animations off). Samples: `docs/screenshots/note-card-handwriting.png`, `note-card-clean.png`.
+- **Pen ink**: marker yellow with a thin dark halo, 4 px, drawn the moment the cursor moves; it holds 1.4 s after the pen lifts and fades over 0.35 s. It never stays on the screen; only the tutor's marks and cards do.
+
 ## Signature elements
 
 - **The capture light**, above.

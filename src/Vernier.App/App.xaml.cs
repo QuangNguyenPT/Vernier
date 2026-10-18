@@ -303,7 +303,7 @@ public partial class App : Application
             if (init?["result"]?["serverInfo"]?["name"]?.GetValue<string>() != "vernier") return "the MCP server did not answer initialize.";
             var list = await Call("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""");
             var names = list?["result"]?["tools"]?.AsArray().Select(t => t?["name"]?.GetValue<string>()).ToList() ?? [];
-            return names.Contains("overlay_mark") && names.Contains("look") ? null : "the MCP server did not list Vernier's tools (" + string.Join(", ", names) + ").";
+            return names.Contains("overlay_marks") && names.Contains("overlay_write") && names.Contains("look") ? null : "the MCP server did not list Vernier's tools (" + string.Join(", ", names) + ").";
         }
         catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {

@@ -22,7 +22,7 @@ $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
 $opt = if ($Debug) { '/Od /Zi' } else { '/O2 /GL' }
 $files = (Get-ChildItem $src -Filter *.cpp | ForEach-Object { '"' + $_.FullName + '"' }) -join ' '
 $cmd = "`"$vcvars`" >nul && cl /nologo /std:c++20 /EHsc /W4 /WX /permissive- /utf-8 $opt /DUNICODE /D_UNICODE /LD $files " +
-       "/Fo`"$obj\\`" /Fe`"$out\Vernier.Native.dll`" /link /NOLOGO d3d11.lib dxgi.lib d2d1.lib dcomp.lib dwmapi.lib windowscodecs.lib ole32.lib user32.lib"
+       "/Fo`"$obj\\`" /Fe`"$out\Vernier.Native.dll`" /link /NOLOGO d3d11.lib dxgi.lib d2d1.lib dcomp.lib dwmapi.lib windowscodecs.lib ole32.lib user32.lib winmm.lib"
 cmd /c $cmd
 if ($LASTEXITCODE -ne 0) { throw "Native build failed ($LASTEXITCODE)." }
 Remove-Item (Join-Path $out '*.exp'), (Join-Path $out '*.lib') -ErrorAction SilentlyContinue

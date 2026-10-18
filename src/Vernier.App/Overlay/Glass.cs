@@ -31,6 +31,9 @@ public sealed class AnnotationSurfaceWindow : Window
     /// <summary>The learner finished a stroke (physical pixels).</summary>
     public event Action<IReadOnlyList<PxPoint>>? StrokeDrawn;
 
+    /// <summary>When set, the pen is drawn by the native ink layer (own thread, straight into DWM) and this window only starts and stops it.</summary>
+    public NativeInk? Ink { get => _surface.NativeInk; set => _surface.NativeInk = value; }
+
     public AnnotationSurfaceWindow(MonitorInfo monitor, AnnotationStore store)
     {
         Monitor = monitor;
@@ -110,7 +113,9 @@ internal sealed class GlassSurface : FrameworkElement
     private readonly DrawingVisual _live = new();
     private readonly Dictionary<Guid, (Annotation Mark, DrawingVisual Visual)> _marks = [];
     private List<Point>? _stroke;
-    private bool _liveDirty, _penArmed;
+    private bool _liveDirty, _penArmed, _nativeStroke;
+
+    public NativeInk? NativeInk { get; set; }
 
     public GlassSurface(MonitorInfo monitor, Action<IReadOnlyList<PxPoint>> strokeDrawn)
     {
@@ -175,6 +180,14 @@ internal sealed class GlassSurface : FrameworkElement
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         if (!PenArmed) return;
+        if (NativeInk is { } ink)
+        {
+            // The native layer follows the cursor itself; WPF only keeps the mouse so the click does not reach the app below.
+            _nativeStroke = true;
+            ink.Start(watchButton: e.StylusDevice is null);
+            CaptureMouse();
+            return;
+        }
         _stroke = [e.GetPosition(this)];
         CaptureMouse();
         CompositionTarget.Rendering += OnFrame;
@@ -194,6 +207,13 @@ internal sealed class GlassSurface : FrameworkElement
 
     private void EndStroke()
     {
+        if (_nativeStroke)
+        {
+            _nativeStroke = false;
+            NativeInk?.Stop();
+            if (IsMouseCaptured) ReleaseMouseCapture();
+            return;
+        }
         if (_stroke is null) return;
         var stroke = _stroke;
         _stroke = null;
@@ -373,6 +393,24 @@ internal static class MarkPainter
             case AnnotationKind.Label:
                 labelAt = pts[0];
                 break;
+            case AnnotationKind.Note when a.Note is { } note && pts.Count >= 2:
+            {
+                // A written card: drawn once to a bitmap (see NoteRenderer); it wipes in from the top like writing appearing.
+                var card = NoteRenderer.CardFor(a.Id, note, Math.Abs(pts[1].X - pts[0].X), pixelsPerDip);
+                if (reveal)
+                {
+                    var wipeStart = new GradientStop(Colors.Black, -0.15);
+                    var wipeEdge = new GradientStop(Colors.Transparent, 0.0);
+                    var mask = new LinearGradientBrush(new GradientStopCollection { wipeStart, wipeEdge }, new Point(0, 0), new Point(0, 1));
+                    var duration = TimeSpan.FromMilliseconds(SystemParameters.ClientAreaAnimation ? 420 : 1);
+                    wipeStart.BeginAnimation(GradientStop.OffsetProperty, new DoubleAnimation(-0.15, 1.0, duration) { EasingFunction = ease });
+                    wipeEdge.BeginAnimation(GradientStop.OffsetProperty, new DoubleAnimation(0.0, 1.15, duration) { EasingFunction = ease });
+                    dc.PushOpacityMask(mask);
+                }
+                dc.DrawImage(card.Image, new Rect(pts[0], card.SizeDip));
+                if (reveal) dc.Pop();
+                break;
+            }
             default:
                 if (pts.Count > 1) Stroke(dc, pts, a.Color, a.StrokeWidth);
                 break;

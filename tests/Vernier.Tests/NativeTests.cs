@@ -214,6 +214,65 @@ public class NativeTests(ITestOutputHelper output)
     });
 
     [Fact]
+    public void Ink_is_drawn_by_the_native_layer_while_the_ui_thread_is_blocked_reports_the_stroke_and_fades_away_by_itself() => WindowsRealApiTests.OnSta(async () =>
+    {
+        if (Skip()) return;
+        var monitor = Win32.Monitors().First(m => m.IsPrimary).BoundsPhysical;
+        using var ink = NativeInk.TryCreate(monitor, 0xFFFFD84D, 4);
+        Assert.NotNull(ink);
+        ink!.SetTiming(700, 300);
+        PxPoint[]? reported = null;
+        ink.StrokeEnded += p => reported = p;
+        try
+        {
+            // A diagonal in the top-left corner (a brief mark, away from the middle of the screen).
+            var from = new PxPoint(monitor.X + 60, monitor.Y + 60);
+            var line = Enumerable.Range(0, 41).Select(i => new PxPoint(from.X + i * 5, from.Y + i * 3)).ToArray();
+            var mid = new PxPoint(from.X + 100, from.Y + 60);
+            var before = Pixel(mid);
+            var clock = Stopwatch.StartNew();
+            ink.Feed(line);
+            Thread.Sleep(5); // the UI thread is busy from here on: the ink must not need it
+            double visibleAfter = -1;
+            while (clock.ElapsedMilliseconds < 600)
+            {
+                if (Pixel(mid) is { R: > 200, G: > 170, B: < 140 }) { visibleAfter = clock.Elapsed.TotalMilliseconds; break; }
+                Thread.Sleep(2);
+            }
+            output.WriteLine($"stroke of 40 segments visible after {visibleAfter:0} ms (screen pixel {before} before, {Pixel(mid)} now), with the UI thread blocked");
+            output.WriteLine($"diagnostics: segments {ink.Segments}, window visible {Win32.IsWindowVisible(ink.Hwnd)}, bounds {Win32.WindowBounds(ink.Hwnd)}, reported {reported?.Length}, last native error 0x{ink.LastError:X8}");
+            Assert.True(visibleAfter >= 0, "the stroke never appeared");
+            Assert.True(visibleAfter < 250, $"the stroke took {visibleAfter:0} ms to appear");
+            Assert.NotEqual(0, ink.Hwnd);
+            Assert.Equal(40, ink.Segments);
+
+            Thread.Sleep(100);
+            Assert.NotNull(reported);                      // the finished stroke came back, for sending with the question
+            Assert.Equal(line.Length, reported!.Length);
+            Assert.Equal(line[0], reported[0]);
+
+            // It leaves by itself: held for 0.7 s, faded over 0.3 s.
+            var gone = false;
+            for (var i = 0; i < 40 && !gone; i++)
+            {
+                await Task.Delay(50);
+                gone = Pixel(mid) is { } px && Math.Abs(px.R - before.R) < 40 && Math.Abs(px.B - before.B) < 40;
+            }
+            Assert.True(gone, "the ink did not fade away");
+            for (var i = 0; i < 20 && Win32.IsWindowVisible(ink.Hwnd); i++) await Task.Delay(50);
+            Assert.False(Win32.IsWindowVisible(ink.Hwnd)); // and the layer hides, so it costs nothing while idle
+
+            // Clearing is immediate.
+            ink.Feed(line);
+            await Task.Delay(150);
+            ink.Clear();
+            for (var i = 0; i < 10 && Win32.IsWindowVisible(ink.Hwnd); i++) await Task.Delay(30);
+            Assert.False(Win32.IsWindowVisible(ink.Hwnd));
+        }
+        finally { ink.Clear(); }
+    });
+
+    [Fact]
     public void Benchmark_scaling_and_encoding_a_screen_wpf_against_wic()
     {
         if (Environment.GetEnvironmentVariable("VERNIER_BENCH") != "1" || !Native.Available) { output.WriteLine("skipped: set VERNIER_BENCH=1 with the native module built"); return; }

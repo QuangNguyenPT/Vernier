@@ -93,6 +93,12 @@ Use a harmless target (Notepad, with nothing unsaved).
 - [ ] With a vault connected and notes allowed, ask "make a note on torque": the card shows the diff for `Vernier/Concepts/Torque.md` and `Vernier/Index.md`. Edit the index in Obsidian before allowing: nothing is written and the tutor is told why.
 - [ ] Google Docs with your own OAuth client (Desktop app, consent screen in testing with your account as a test user): Connect in Settings › Connectors, sign in in the browser, ask "save this to my Google notes": a "Vernier notes" document appears in your Drive with the text. Disconnect: the grant disappears from your Google account's third-party access.
 
+## 8b2. Pen and note cards
+
+- [ ] Arm the pen and circle something: the stroke follows the pointer with no visible lag, fades about 1.5 s after you lift the pen, and is gone. Press Ask: your marks went with the question and the screen shows only the tutor's marks.
+- [ ] Draw two strokes, press Undo mark: only the last stroke is taken back. Clear marks takes back every stroke.
+- [ ] Ask the tutor to solve a worksheet problem: a dark card with the working appears beside the problem, not over it, formulas typeset, the answer boxed; marks on the quantities appear in one go. Move the ask bar over the free space and ask again: the card goes elsewhere.
+
 ## 8c. Look and feel
 
 - [ ] Try each theme (Settings › Theme): the ask bar is see-through acrylic with rounded corners and a soft shadow on Windows 11; with "Transparency effects" off it is opaque.
