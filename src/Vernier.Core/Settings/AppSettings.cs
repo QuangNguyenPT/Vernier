@@ -89,6 +89,14 @@ public sealed class AppSettings
     public bool ReadScreenForContext { get; set; } = true;
     /// <summary>Offer help (a notification, at most twice an hour) when the learner seems stuck, e.g. rewinding the same part of a video. Worked out by code; nothing is sent.</summary>
     public bool ProactiveSuggestions { get; set; } = true;
+    /// <summary>
+    /// Let the tutor research on the web (the web_research tool) and require it when a web page, unfamiliar software or a
+    /// question about how something works is in front. On by default at the owner's direction (2026-10-18); queries are
+    /// written by the model with personal details removed. Shown at first run and on upgrade; off in Pause and Share-Safe.
+    /// </summary>
+    public bool AllowWebResearch { get; set; } = true;
+    /// <summary>The learner has seen the research notice.</summary>
+    public bool WebResearchNoticeShown { get; set; }
     /// <summary>The learner has seen the context notice (first run, or after upgrading to a build with the context engine).</summary>
     public bool ContextNoticeShown { get; set; }
     public int ContextRetentionDays { get; set; } = 14;

@@ -14,7 +14,7 @@ namespace
     };
 }
 
-VN_API int32_t vn_version(void) { return 1; }
+VN_API int32_t vn_version(void) { return VN_ABI; }
 
 VN_API void vn_free(void* p) { CoTaskMemFree(p); }
 

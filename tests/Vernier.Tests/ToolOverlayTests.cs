@@ -84,6 +84,26 @@ public class ToolOverlayTests(ITestOutputHelper output)
             Assert.True(rect.X >= area.X + area.Width / 2 - 30, $"the card at {rect} sits over the problem (left half ends at {area.X + area.Width / 2})");
             Assert.True(area.Contains(new PxPoint(rect.Right, rect.Bottom)), "and it is on the screen");
 
+            // 2b. An area on a graph: the model reads the axes, Vernier shades the shapes and computes the areas.
+            var graph = await AppServices.Tools.RunAsync("graph_area", Json("""
+                {"x_ticks":[{"px":700,"value":0},{"px":1100,"value":10}],"y_ticks":[{"px":600,"value":0},{"px":200,"value":20}],"x_unit":"s","y_unit":"m/s","area_unit":"m",
+                 "shapes":[{"name":"A1","vertices":[[0,0],[4,12],[4,0]]},{"name":"A2","vertices":[[4,0],[4,12],[9,12],[9,0]]}]}
+                """), turn, CancellationToken.None);
+            output.WriteLine(graph.Text);
+            Assert.False(graph.IsError, graph.Text);
+            Assert.Contains("A1: corners (0, 0) (4, 12) (4, 0) → area 24 m", graph.Text);
+            Assert.Contains("Total ≈ 84 m", graph.Text);
+            var shaded = AppServices.Annotations.Items.Where(a => a.Kind == AnnotationKind.Region).ToList();
+            Assert.Equal(2, shaded.Count);
+            Assert.Equal("A1 ≈ 24 m", shaded[0].Label);
+            Assert.Equal(geo.ImageToPhysical(new PxPoint(860, 360)), shaded[0].Points[1]); // (4 s, 12 m/s) on the screen
+            var refused = await AppServices.Tools.RunAsync("graph_area", Json("""
+                {"x_ticks":[{"px":700,"value":0},{"px":705,"value":10}],"y_ticks":[{"px":600,"value":0},{"px":200,"value":20}],"shapes":[{"vertices":[[0,0],[1,1],[1,0]]}]}
+                """), turn, CancellationToken.None);
+            Assert.True(refused.IsError);
+            Assert.Contains("apart", refused.Text);
+            AppServices.Annotations.RemoveWhere(a => a.Kind == AnnotationKind.Region);
+
             // 3. Bad input is refused with something the model can act on, and drawing nothing.
             var empty = await AppServices.Tools.RunAsync("overlay_write", Json("""{"lines":[{"kind":"step"}]}"""), turn, CancellationToken.None);
             Assert.True(empty.IsError);
@@ -146,7 +166,7 @@ public class ToolOverlayTests(ITestOutputHelper output)
     public void The_guide_names_every_tool_the_tutor_is_offered_and_the_skill_is_the_same_text()
     {
         var guide = OperatorGuide.Text;
-        string[] tools = [.. ScreenTools.Names, .. ContextTools.Names, .. ComputerTools.Names, .. NoteTools.Names, .. GoogleTools.ReadNames, .. GoogleTools.WriteNames];
+        string[] tools = [.. ScreenTools.Names, .. ContextTools.Names, .. ComputerTools.Names, .. NoteTools.Names, .. GoogleTools.ReadNames, .. GoogleTools.WriteNames, .. WebTools.Names];
         foreach (var name in tools) Assert.Contains(name, guide);
         Assert.Contains("never with code", guide);
 
@@ -255,6 +275,82 @@ public class LiveOperatorTests(ITestOutputHelper output)
             var note = Assert.Single(AppServices.Annotations.Items.Where(a => a.Kind == AnnotationKind.Note).Take(2).ToList().Count == 1 ? AppServices.Annotations.Items.Where(a => a.Kind == AnnotationKind.Note) : AppServices.Annotations.Items.Where(a => a.Kind == AnnotationKind.Note).Take(1));
             Assert.True(note.Note!.Lines.Count >= 3, "a worked solution has steps");
             Assert.Contains(note.Note.Lines, l => l.Math is { Length: > 0 });
+        }
+        finally { AppServices.Shutdown(); }
+    });
+
+    // One live turn with the real Claude Code CLI and Vernier's tools over MCP; returns the turn for its events and state.
+    private async Task<(ToolTurn Turn, string Answer)> LiveTurnAsync(string dataDir, ScreenIndex screen, PxRect area, string[] tools, string question)
+    {
+        var turn = new ToolTurn(tools, CancellationToken.None);
+        turn.State[ScreenTools.ScreenKey] = screen;
+        turn.State[ScreenTools.AskKey] = new ScreenAsk(area, [], 0);
+        using var grant = AppServices.Mcp!.Open(turn);
+        var defs = AppServices.Tools.Registry.Definitions.Where(d => tools.Contains(d.Name)).ToList();
+        var session = new Vernier.Core.Providers.ToolSession(defs, turn, AppServices.Tools, AppServices.Mcp);
+        var provider = new Vernier.Core.Providers.ClaudeCodeProvider(new Vernier.Core.Settings.ProviderSettings { Id = "claude-code", DisplayName = "Claude Code", Kind = Vernier.Core.Settings.ProviderKinds.ClaudeCode }, dataDir);
+        var system = new MasteryTutor().BuildSystem(new Vernier.Core.Settings.LearnerProfile(), LearningSummary.None, false, tools: true);
+        var request = new Vernier.Core.Providers.ChatRequest(system, [Vernier.Core.Providers.ChatMessage.User(question)], Tools: session);
+        var result = await Vernier.Core.Providers.ChatRunner.CompleteAsync(provider, request, TimeSpan.FromSeconds(300), CancellationToken.None);
+        foreach (var e in turn.Events) output.WriteLine($"{e.Tool} ({e.Took.TotalMilliseconds:0} ms) error={e.IsError}: {e.Outcome.ReplaceLineEndings(" ")[..Math.Min(400, e.Outcome.Length)]}");
+        output.WriteLine("answer: " + result.Text.ReplaceLineEndings(" "));
+        return (turn, result.Text);
+    }
+
+    [Fact]
+    public void A_real_model_researches_unfamiliar_software_on_the_real_web_before_explaining() => WindowsRealApiTests.OnAppSta(async () =>
+    {
+        if (Environment.GetEnvironmentVariable("VERNIER_LIVE") != "1") return;
+        using var dir = new TempDir();
+        AppServices.Initialize(dir.Path);
+        try
+        {
+            var area = Vernier.App.Platform.Win32.Monitors().First(m => m.IsPrimary).BoundsPhysical;
+            var screen = new ScreenIndex("o1", new CaptureGeometry(area, (int)(area.Width / 2), (int)(area.Height / 2)),
+                [Line("Blender 4.2 — Properties › Modifiers › Bevel", 900, 40), Line("Amount 0.1 m   Segments 1   Limit Method: Angle 30°", 900, 70), Line("Width Type: Offset", 900, 100)], DateTimeOffset.UtcNow);
+            var demand = Vernier.Core.Research.ResearchPolicy.Decide(AppProfiles.Match("blender", null), "blender", "What do Segments and Limit Method do here?");
+            Assert.True(demand.Required);
+            var (turn, answer) = await LiveTurnAsync(dir.Path, screen, area, [.. ScreenTools.Names, .. WebTools.Names],
+                "The learner is working in Blender (3D).\n" +
+                $"Research: REQUIRED for this answer, because {demand.Reason}. Call web_research first and read at least 3 working sources, then explain in your own words for this learner.\n" +
+                "Screen list:\n" + screen.Describe() + "\nQuestion: What do Segments and Limit Method do on this Bevel modifier, and what should I change to get a rounder edge?");
+            var ledger = turn.State.TryGetValue(Vernier.Core.Research.ResearchLedger.Key, out var l) ? (Vernier.Core.Research.ResearchLedger)l : null;
+            output.WriteLine($"working sources: {ledger?.Working ?? 0}: {string.Join(" ", ledger?.Urls ?? [])}");
+            Assert.True((ledger?.Working ?? 0) >= Vernier.Core.Research.ResearchPolicy.MinSources, "fewer than three working sources were read");
+            Assert.Contains("Segments", answer, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Sources", answer, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { AppServices.Shutdown(); }
+    });
+
+    [Fact]
+    public void A_real_model_shades_the_area_under_a_velocity_time_graph_and_uses_the_computed_number() => WindowsRealApiTests.OnAppSta(async () =>
+    {
+        if (Environment.GetEnvironmentVariable("VERNIER_LIVE") != "1") return;
+        using var dir = new TempDir();
+        AppServices.Initialize(dir.Path);
+        try
+        {
+            var area = Vernier.App.Platform.Win32.Monitors().First(m => m.IsPrimary).BoundsPhysical;
+            // A v–t graph described by its tick labels (screenshot pixels) and the plotted line, as OCR would locate them.
+            var screen = new ScreenIndex("o1", new CaptureGeometry(area, (int)(area.Width / 2), (int)(area.Height / 2)),
+            [
+                Line("v (m/s)", 60, 80), Line("20", 70, 100), Line("10", 70, 300), Line("0", 80, 500),
+                Line("0", 100, 515), Line("5", 350, 515), Line("10", 600, 515), Line("t (s)", 620, 515),
+                // Short items: the screen list shortens long text, as it does for real OCR lines.
+                Line("Line: (0 s, 0) to (4 s, 12 m/s)", 100, 550),
+                Line("Flat at 12 m/s from 4 s to 9 s", 100, 570),
+                Line("Falls to 0 m/s at 10 s", 100, 590),
+                Line("Find the displacement in 10 s.", 100, 610),
+            ], DateTimeOffset.UtcNow);
+            var (turn, answer) = await LiveTurnAsync(dir.Path, screen, area, ScreenTools.Names,
+                "Screen list (each item's box is in screenshot pixels; the graph's axes are labelled by the tick text):\n" + screen.Describe() + "\nThe learner asks for the full answer: find the displacement of the car in the first 10 s, and show on the graph how you got it.");
+            var graph = turn.Events.Where(e => e.Tool == "graph_area" && !e.IsError).ToList();
+            Assert.NotEmpty(graph);
+            Assert.Contains(AppServices.Annotations.Items, a => a.Kind == AnnotationKind.Region);
+            // ½·4·12 + 5·12 + ½·1·12 = 24 + 60 + 6 = 90 m, computed by Vernier, and the answer gives that number.
+            Assert.Contains(graph, e => e.Outcome.Contains("Total ≈ 90"));
+            Assert.Contains("90", answer);
         }
         finally { AppServices.Shutdown(); }
     });

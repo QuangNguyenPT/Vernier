@@ -27,8 +27,8 @@ public static class ScreenTools
     public static IdSequence Ids(ToolTurn turn) => (IdSequence)turn.State.GetOrAdd(IdsKey, _ => new IdSequence());
     private static IdSequence MarkIds(ToolTurn turn) => (IdSequence)turn.State.GetOrAdd("markIds", _ => new IdSequence());
 
-    public static IEnumerable<ITool> All() => [new FindOnScreen(), new OverlayMark(), new OverlayMarks(), new OverlayWrite(), new OverlayClear(), new Look()];
-    public static readonly string[] Names = ["find_on_screen", "overlay_mark", "overlay_marks", "overlay_write", "overlay_clear", "look"];
+    public static IEnumerable<ITool> All() => [new FindOnScreen(), new OverlayMark(), new OverlayMarks(), new OverlayWrite(), new GraphArea(), new OverlayClear(), new Look()];
+    public static readonly string[] Names = ["find_on_screen", "overlay_mark", "overlay_marks", "overlay_write", "graph_area", "overlay_clear", "look"];
 
     internal static ScreenIndex Screen(ToolTurn turn) =>
         turn.State.TryGetValue(ScreenKey, out var s) && s is ScreenIndex index ? index
@@ -235,6 +235,111 @@ public static class ScreenTools
             }).ConfigureAwait(false);
             return ToolResult.Ok($"Drew {drawn.Count} of {number} marks.\n{report}They stay until that part of the screen changes or the learner clears them.");
         }
+    }
+
+    /// <summary>
+    /// Shades the region of a graph whose area answers the question (distance under a v–t curve, work under F–x) as
+    /// triangles, rectangles or trapezoids the model reads off the axes, and computes the areas in code: one call draws,
+    /// labels and calculates, so the arithmetic is never the model's and the learner sees what was added up.
+    /// </summary>
+    private sealed class GraphArea : ITool
+    {
+        public const int MaxShapes = 3;
+
+        private static JsonObject Ticks(string axis) => new()
+        {
+            ["type"] = "array", ["minItems"] = 2, ["maxItems"] = 2,
+            ["description"] = $"Two labelled ticks on the {axis} axis, far apart: where each is in the screenshot (px: its {axis} pixel coordinate) and the value printed there.",
+            ["items"] = new JsonObject
+            {
+                ["type"] = "object", ["required"] = new JsonArray("px", "value"), ["additionalProperties"] = false,
+                ["properties"] = new JsonObject { ["px"] = new JsonObject { ["type"] = "number" }, ["value"] = new JsonObject { ["type"] = "number" } },
+            },
+        };
+
+        public ToolDefinition Definition { get; } = new("graph_area",
+            "Shades the area under (or between) a graph and computes it, for questions like displacement from a velocity–time graph or work from a force–distance graph. " +
+            "Read two labelled ticks on each axis from the screenshot, then give up to 3 shapes (triangle, rectangle, trapezoid: any polygon) in DATA units that follow the region; for a curve, put the corners on the curve so the shapes approximate it. " +
+            "Vernier draws the shapes on the graph, labels each with its area and computes every area and the total in code. Use the numbers it returns in your answer. Linear axes only.",
+            Schema(new JsonObject
+            {
+                ["x_ticks"] = Ticks("x"),
+                ["y_ticks"] = Ticks("y"),
+                ["x_unit"] = Str("Unit on the x axis, e.g. s.", 16),
+                ["y_unit"] = Str("Unit on the y axis, e.g. m/s.", 16),
+                ["area_unit"] = Str("Unit of the area, e.g. m (s × m/s). Default: y_unit·x_unit.", 16),
+                ["shapes"] = new JsonObject
+                {
+                    ["type"] = "array", ["minItems"] = 1, ["maxItems"] = MaxShapes,
+                    ["items"] = new JsonObject
+                    {
+                        ["type"] = "object", ["required"] = new JsonArray("vertices"), ["additionalProperties"] = false,
+                        ["properties"] = new JsonObject
+                        {
+                            ["name"] = Str("A short name shown on the shape, e.g. A1.", 12),
+                            ["vertices"] = new JsonObject
+                            {
+                                ["type"] = "array", ["minItems"] = 3, ["maxItems"] = 12, ["description"] = "Corners in data units, in order round the shape, e.g. [[0,0],[4,12],[4,0]].",
+                                ["items"] = new JsonObject { ["type"] = "array", ["minItems"] = 2, ["maxItems"] = 2, ["items"] = new JsonObject { ["type"] = "number" } },
+                            },
+                        },
+                    },
+                },
+            }, "x_ticks", "y_ticks", "shapes"),
+            ToolRisk.Annotate);
+
+        public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolTurn turn, CancellationToken ct)
+        {
+            var screen = Screen(turn);
+            var monitor = MonitorOf(turn, screen);
+            static AxisTick Tick(JsonNode? n) => new(n?["px"]?.GetValue<double>() ?? double.NaN, n?["value"]?.GetValue<double>() ?? double.NaN);
+            if (args["x_ticks"] is not JsonArray { Count: 2 } xt || args["y_ticks"] is not JsonArray { Count: 2 } yt) return ToolResult.Fail("Give exactly two ticks on each axis.");
+            var axes = new AxisCalibration(Tick(xt[0]), Tick(xt[1]), Tick(yt[0]), Tick(yt[1]));
+            if (axes.Problem() is { } problem) return ToolResult.Fail($"The axes cannot be read like that: {problem}. Look at the screenshot again and give two labelled ticks per axis.");
+            string xUnit = args["x_unit"]?.GetValue<string>()?.Trim() ?? "", yUnit = args["y_unit"]?.GetValue<string>()?.Trim() ?? "";
+            var unit = args["area_unit"]?.GetValue<string>()?.Trim() is { Length: > 0 } u ? u : string.Join("·", new[] { yUnit, xUnit }.Where(s => s.Length > 0));
+            string WithUnit(double v) => unit.Length > 0 ? $"{Number(v)} {unit}" : Number(v);
+
+            var image = screen.Geometry.ImageBounds;
+            var marks = new List<Annotation>();
+            var report = new StringBuilder();
+            var total = 0.0;
+            var number = 0;
+            foreach (var node in args["shapes"]!.AsArray())
+            {
+                number++;
+                var name = node?["name"]?.GetValue<string>()?.Trim() is { Length: > 0 } n ? n : $"A{number}";
+                var data = (node?["vertices"] as JsonArray)?.Select(v => (X: v?[0]?.GetValue<double>() ?? double.NaN, Y: v?[1]?.GetValue<double>() ?? double.NaN)).ToList() ?? [];
+                if (data.Count < 3 || data.Any(p => !double.IsFinite(p.X) || !double.IsFinite(p.Y))) return ToolResult.Fail($"Shape {name} needs at least three [x, y] corners in data units. Nothing was drawn.");
+                if (AxisCalibration.SelfIntersects(data)) return ToolResult.Fail($"Shape {name} crosses itself; list its corners in order round the shape. Nothing was drawn.");
+                var pixels = data.Select(p => axes.ToImage(p.X, p.Y)).ToList();
+                if (pixels.Any(p => p.X < -2 || p.Y < -2 || p.X > image.Width + 2 || p.Y > image.Height + 2))
+                    return ToolResult.Fail($"Shape {name} would fall outside the screenshot with these axes ({string.Join(" ", pixels.Select(p => $"({p.X:0},{p.Y:0})"))} px): check the tick pixels and the corners. Nothing was drawn.");
+                var area = AxisCalibration.Area(data);
+                if (area <= 0) return ToolResult.Fail($"Shape {name} has no area: its corners lie on one line. Nothing was drawn.");
+                total += area;
+                marks.Add(new Annotation
+                {
+                    Kind = AnnotationKind.Region, Points = [.. pixels.Select(screen.Geometry.ImageToPhysical)], Color = AnnotationColors.Focus, StrokeWidth = 2.5,
+                    Label = $"{name} ≈ {WithUnit(area)}", Meaning = "area under the graph", Source = "tutor", Confidence = 1, Lifetime = TimeSpan.FromMinutes(10),
+                });
+                report.AppendLine($"{name}: corners {string.Join(" ", data.Select(p => $"({Number(p.X)}, {Number(p.Y)})"))} → area {WithUnit(area)}");
+            }
+            await OnUi(() =>
+            {
+                AppServices.Annotations.Add([.. marks]);
+                AppServices.Overlays.WatchTutorMarks(monitor);
+                return true;
+            }).ConfigureAwait(false);
+            var state = (ConcurrentDictionary<string, Guid>)turn.State.GetOrAdd(MarksKey, _ => new ConcurrentDictionary<string, Guid>());
+            var ids = marks.Select(m => { var id = MarkIds(turn).Next('a'); state[id] = m.Id; return id; }).ToList();
+            return ToolResult.Ok(report +
+                (marks.Count > 1 ? $"Total ≈ {WithUnit(total)}\n" : "") +
+                $"Computed by Vernier from your reading of the axes (x: {Number(axes.X0.Value)} at {axes.X0.Px:0} px, {Number(axes.X1.Value)} at {axes.X1.Px:0} px; y: {Number(axes.Y0.Value)} at {axes.Y0.Px:0} px, {Number(axes.Y1.Value)} at {axes.Y1.Px:0} px). " +
+                $"Drawn as {string.Join(", ", ids)}. Say the answer is approximate when the shapes approximate a curve.");
+        }
+
+        internal static string Number(double v) => Math.Abs(v - Math.Round(v)) < 1e-9 ? Math.Round(v).ToString(CultureInfo.InvariantCulture) : v.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
     private sealed class OverlayWrite : ITool

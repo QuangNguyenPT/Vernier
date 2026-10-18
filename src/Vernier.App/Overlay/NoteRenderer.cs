@@ -17,10 +17,10 @@ namespace Vernier.App;
 public static class NoteRenderer
 {
     private static readonly Color Paper = Color.FromArgb(0xF2, 0x0B, 0x12, 0x18), PaperTop = Color.FromArgb(0xF2, 0x13, 0x1E, 0x27), Edge = Color.FromRgb(0x45, 0x59, 0x6A);
-    private static readonly Color Ink = Color.FromRgb(0xE4, 0xEC, 0xF2), Soft = Color.FromRgb(0xB2, 0xC0, 0xCB), Blue = Color.FromRgb(0x6C, 0xC4, 0xFF),
+    private static readonly Color Ink = Color.FromRgb(0xF4, 0xF7, 0xFA), Soft = Color.FromRgb(0xC9, 0xD4, 0xDD), Blue = Color.FromRgb(0x6C, 0xC4, 0xFF),
         Green = Color.FromRgb(0x6F, 0xD9, 0x8A), Red = Color.FromRgb(0xFF, 0x8A, 0x8A);
 
-    private static readonly FontFamily Hand = new("Ink Free, Segoe Print, Segoe Script, Segoe UI");
+    private static readonly FontFamily Hand = new("Segoe Print, Ink Free, Segoe Script, Segoe UI"); // sturdy and even: legible at a glance over any page
     private static readonly FontFamily Clean = new("Sitka Text, Cambria, Georgia");
     private static readonly FontFamily Heading = new("Sitka Subheading, Sitka Heading, Cambria, Georgia");
 
@@ -60,7 +60,7 @@ public static class NoteRenderer
     {
         var column = new StackPanel { Margin = new Thickness(18, 12, 16, 14) };
         if (note.Title is { Length: > 0 } title)
-            column.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), FontFamily = Heading, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brush(Blue), Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
+            column.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), FontFamily = Heading, FontSize = 13, FontWeight = FontWeights.Bold, Foreground = Brush(Blue), Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
         foreach (var line in note.Lines) column.Children.Add(Line(line, note.Handwriting));
 
         var rule = new Border { Width = 3, Background = Brush(Blue), CornerRadius = new CornerRadius(1.5), Margin = new Thickness(0, 12, 0, 12), HorizontalAlignment = HorizontalAlignment.Left };
@@ -105,17 +105,21 @@ public static class NoteRenderer
             panel.Children.Add(new TextBlock
             {
                 Text = prefix + line.Text, TextWrapping = TextWrapping.Wrap, Foreground = Brush(colour),
-                FontFamily = handwriting ? Hand : Clean, FontSize = handwriting ? 19 : 15.5, LineHeight = handwriting ? 25 : 22,
+                FontFamily = handwriting ? Hand : Clean, FontSize = handwriting ? 17.5 : 16.5, LineHeight = handwriting ? 28 : 24,
                 FontStyle = line.Kind == NoteLineKind.Note ? FontStyles.Italic : FontStyles.Normal,
             });
         }
-        if (line.Math is { Length: > 0 } tex && Formula(tex, colour, line.Kind == NoteLineKind.Result ? 24 : 20) is { } formula)
+        if (line.Math is { Length: > 0 } tex && Formula(tex, colour, line.Kind == NoteLineKind.Result ? 26 : 22) is { } formula)
         {
-            formula.Margin = new Thickness(line.Kind == NoteLineKind.Result ? 8 : 4, line.Text.Length > 0 ? 3 : 0, 0, 0);
-            formula.HorizontalAlignment = HorizontalAlignment.Left;
+            // A formula wider than the card is scaled down to fit, never cut off.
+            var fitted = new Viewbox
+            {
+                Child = formula, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(line.Kind == NoteLineKind.Result ? 8 : 4, line.Text.Length > 0 ? 3 : 0, 0, 0),
+            };
             if (line.Kind == NoteLineKind.Result)
-                return new Border { Child = new StackPanel { Children = { panel, formula }, Margin = new Thickness(8, 5, 10, 6) }, BorderBrush = Brush(Blue), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(9), Margin = new Thickness(0, 4, 0, 9), HorizontalAlignment = HorizontalAlignment.Left };
-            panel.Children.Add(formula);
+                return new Border { Child = new StackPanel { Children = { panel, fitted }, Margin = new Thickness(8, 5, 10, 6) }, BorderBrush = Brush(Blue), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(9), Margin = new Thickness(0, 4, 0, 9), HorizontalAlignment = HorizontalAlignment.Left };
+            panel.Children.Add(fitted);
         }
         else if (line.Math is { Length: > 0 } source)
         {

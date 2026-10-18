@@ -63,7 +63,7 @@ public sealed class NoteDismissWindow : Window
         Content = button;
         // It arrives with the card's wipe, not ahead of it.
         Opacity = 0;
-        BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(SystemParameters.ClientAreaAnimation ? 240 : 1)) { BeginTime = TimeSpan.FromMilliseconds(SystemParameters.ClientAreaAnimation ? 300 : 0) });
+        BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(SystemParameters.ClientAreaAnimation ? 240 : 1)) { BeginTime = TimeSpan.FromMilliseconds(SystemParameters.ClientAreaAnimation ? 180 : 0) });
     }
 
     private nint Handle => new WindowInteropHelper(this).Handle;

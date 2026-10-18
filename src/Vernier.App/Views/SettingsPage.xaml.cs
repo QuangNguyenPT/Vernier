@@ -82,6 +82,7 @@ public partial class SettingsPage : UserControl, IRefreshable
         AllowCapture.IsChecked = S.AllowScreenCapture;
         AllowMic.IsChecked = S.AllowMicrophone;
         AllowActivity.IsChecked = S.AllowActivityContext;
+        AllowResearch.IsChecked = S.AllowWebResearch;
         ReadScreen.IsChecked = S.ReadScreenForContext;
         Proactive.IsChecked = S.ProactiveSuggestions;
         RetentionText.Text = S.ContextRetentionDays.ToString(CultureInfo.InvariantCulture);
@@ -348,6 +349,7 @@ public partial class SettingsPage : UserControl, IRefreshable
         S.AllowScreenCapture = AllowCapture.IsChecked == true;
         S.AllowMicrophone = AllowMic.IsChecked == true;
         S.AllowActivityContext = AllowActivity.IsChecked == true;
+        S.AllowWebResearch = AllowResearch.IsChecked == true;
         S.ReadScreenForContext = ReadScreen.IsChecked == true;
         S.ProactiveSuggestions = Proactive.IsChecked == true;
         S.AllowSendNotesToRemote = AllowNotes.IsChecked == true;

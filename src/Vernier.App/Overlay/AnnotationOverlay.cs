@@ -124,6 +124,10 @@ public sealed class AnnotationOverlayManager : IDisposable
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private nint _trackedWindow;
     private PxRect? _trackedBounds;
+    private string? _trackedTitle;
+    // What was under each tutor mark when it appeared: how a mark is found again after the content moved (MarkRefit).
+    private readonly Dictionary<Guid, MarkAnchor> _anchors = [];
+    private readonly IPatchMatcher _matcher = NativePatchMatcher.Best;
     private bool _looking;
     private PxRect? _watch;
     private byte[]? _watchBaseline;
@@ -142,8 +146,10 @@ public sealed class AnnotationOverlayManager : IDisposable
     public PxRect? InkBounds => _ink.Count == 0 ? null : Bounds(_ink.SelectMany(a => a.Points));
 
     public event Action? PenChanged;
-    /// <summary>What the tutor's marks pointed at has changed (scrolled, zoomed, video moved on); the marks were removed.</summary>
+    /// <summary>The screen under the tutor's marks became a different one (another page, another video): every mark was removed.</summary>
     public event Action? MarksWentStale;
+    /// <summary>The content under the marks moved or partly changed: (marks moved with their content, marks removed because their content is gone).</summary>
+    public event Action<int, int>? MarksRefit;
     /// <summary>Whether the screen may be sampled right now. Sampling is local, never sent, and follows the same consent as capture.</summary>
     public Func<bool> CanSample { get; set; } = () => false;
 
@@ -274,6 +280,7 @@ public sealed class AnnotationOverlayManager : IDisposable
     {
         _trackedWindow = hwnd;
         _trackedBounds = hwnd == 0 ? null : Win32.WindowBounds(hwnd);
+        _trackedTitle = hwnd == 0 ? null : Win32.WindowTitle(hwnd);
     }
 
     /// <summary>
@@ -305,23 +312,79 @@ public sealed class AnnotationOverlayManager : IDisposable
         if (_looking || !CanSample() || OwnWindowOver(area)) { _watchBaseline = null; return; }
         if (DateTime.UtcNow < _settledAt) return;
         _sampling = true;
-        byte[] now;
-        try { now = await Task.Run(() => ScreenCaptureService.Thumbnail(area, WatchThumb)); } // GDI and scaling stay off the UI thread
-        catch (InvalidOperationException) { return; } // locked session: try again later
+        try
+        {
+            // New marks get their anchors once they have settled, before the baseline is taken.
+            if (_store.Items.Any(a => a.Source == "tutor" && !_anchors.ContainsKey(a.Id))) await AnchorAsync();
+            var now = await Task.Run(() => ScreenCaptureService.Thumbnail(area, WatchThumb)); // GDI and scaling stay off the UI thread
+            if (_watch != area) return; // moved or replaced while sampling
+            if (_watchBaseline is null) { _watchBaseline = now; return; }
+            if (ScreenDiff.Fraction(_watchBaseline, now) < StaleFraction) return;
+            _watchBaseline = null;
+            await RefitAsync();
+        }
+        catch (InvalidOperationException) { } // locked session: try again later
         catch (Exception e) when (e is ArgumentException or System.ComponentModel.Win32Exception or OutOfMemoryException)
         {
-            AppServices.Log.Warn("Checking whether marks are stale failed: " + e.GetType().Name); // an async void timer handler must not throw
-            return;
+            AppServices.Log.Warn("Checking whether marks still fit failed: " + e.GetType().Name); // an async void timer handler must not throw
         }
         finally { _sampling = false; }
-        if (_watch != area) return; // moved or replaced while sampling
-        if (_watchBaseline is null) { _watchBaseline = now; return; }
-        if (ScreenDiff.Fraction(_watchBaseline, now) < StaleFraction) return;
-        _watch = null;
-        _watchBaseline = null;
-        // Only the tutor's marks: the learner's own ink is theirs to remove.
-        _store.RemoveWhere(a => a.Source == "tutor");
-        MarksWentStale?.Invoke();
+    }
+
+    // Where marks are looked for: the window they belong to (so a scroll inside it can be followed), else their monitor.
+    private PxRect ViewArea()
+    {
+        var points = _store.Items.Where(a => a.Source == "tutor").SelectMany(a => a.Points).ToList();
+        var centre = points.Count > 0 ? new PxPoint(points.Average(p => p.X), points.Average(p => p.Y)) : Win32.VirtualDesktop().Center;
+        var monitor = Win32.Monitors().FirstOrDefault(m => m.BoundsPhysical.Contains(centre))?.BoundsPhysical ?? Win32.VirtualDesktop();
+        // The tracked window only when the marks are in it; marks elsewhere (another window, the desktop) are looked for on their monitor.
+        var inWindow = _trackedWindow != 0 && Win32.WindowBounds(_trackedWindow) is { } w && points.Count > 0 && points.All(w.Intersect(monitor).Contains);
+        return inWindow ? Win32.WindowBounds(_trackedWindow)!.Value.Intersect(monitor) : monitor;
+    }
+
+    private static PxRect TargetOf(Annotation a)
+    {
+        if (a.TargetRegion is { } t) return t; // a note card is anchored to what it is about, not to the free space it sits on
+        double l = a.Points.Min(p => p.X), top = a.Points.Min(p => p.Y);
+        return new PxRect(l, top, Math.Max(1, a.Points.Max(p => p.X) - l), Math.Max(1, a.Points.Max(p => p.Y) - top));
+    }
+
+    // The view as it is now, at half scale, with Vernier's own windows (the glass and its marks) left out of the picture.
+    private static async Task<GrayImage> ViewAsync(PxRect view)
+    {
+        var raw = await AppServices.WithSelfExcludedAsync(() => ScreenCaptureService.Raw(ScreenCaptureService.Grab(view)));
+        return await Task.Run(() => GrayImage.HalfFromBgra(raw.Bgra, raw.Width, raw.Height, raw.Width * 4));
+    }
+
+    private async Task AnchorAsync()
+    {
+        var area = ViewArea();
+        var view = await ViewAsync(area);
+        foreach (var a in _store.Items.Where(a => a.Source == "tutor" && !_anchors.ContainsKey(a.Id)))
+            _anchors[a.Id] = MarkAnchor.From(a.Id, TargetOf(a), view, area);
+        foreach (var gone in _anchors.Keys.Where(id => !_store.Items.Any(a => a.Id == id)).ToList()) _anchors.Remove(gone);
+    }
+
+    // The content under the marks changed: each mark looks for its own content and moves with it, or goes if it is gone.
+    private async Task RefitAsync()
+    {
+        var tutor = _store.Items.Where(a => a.Source == "tutor").ToList();
+        if (tutor.Count == 0) { _watch = null; return; }
+        var area = ViewArea();
+        var view = await ViewAsync(area);
+        var anchors = tutor.Select(a => _anchors.TryGetValue(a.Id, out var anchor) ? anchor : new MarkAnchor(a.Id, TargetOf(a), null)).ToList();
+        var result = await Task.Run(() => MarkRefit.Decide(anchors, view, area, _matcher));
+        if (result.ClearAll) { ClearTutorMarks(); return; }
+        foreach (var (id, d) in result.Moves)
+            if (_anchors.TryGetValue(id, out var anchor)) _anchors[id] = anchor with { PatchArea = anchor.PatchArea with { X = anchor.PatchArea.X + d.X, Y = anchor.PatchArea.Y + d.Y } };
+        _store.Shift(result.Moves);
+        if (result.Lost.Count > 0)
+        {
+            _store.RemoveWhere(a => result.Lost.Contains(a.Id));
+            foreach (var id in result.Lost) _anchors.Remove(id);
+        }
+        WatchTutorMarks(Win32.Monitors().FirstOrDefault(m => !m.BoundsPhysical.Intersect(area).IsEmpty)?.BoundsPhysical ?? area);
+        if (result.Moves.Count > 0 || result.Lost.Count > 0) MarksRefit?.Invoke(result.Moves.Count, result.Lost.Count);
     }
 
     /// <summary>
@@ -452,11 +515,28 @@ public sealed class AnnotationOverlayManager : IDisposable
         if (_trackedWindow != 0 && _trackedBounds is { } old && Win32.WindowBounds(_trackedWindow) is { } current && current != old)
         {
             _store.Rebase(old, current, Win32.VirtualDesktop());
+            foreach (var (id, anchor) in _anchors.ToList())
+                _anchors[id] = anchor with { PatchArea = anchor.PatchArea with { X = anchor.PatchArea.X + current.X - old.X, Y = anchor.PatchArea.Y + current.Y - old.Y } };
             _trackedBounds = current;
             // A moved window takes its marks with it; a resized one reflows, which the comparison below will catch.
             if (_watch is { } w) Watch(new PxRect(w.X + current.X - old.X, w.Y + current.Y - old.Y, w.Width, w.Height));
         }
+        // Another page or document in the same window: what the marks pointed at is gone, whatever the pixels say.
+        if (_trackedWindow != 0 && _trackedTitle is { Length: > 0 } title && Win32.WindowTitle(_trackedWindow) is { Length: > 0 } now && now != title)
+        {
+            _trackedTitle = now;
+            if (_store.Items.Any(a => a.Source == "tutor")) ClearTutorMarks();
+        }
         CheckStale();
+    }
+
+    private void ClearTutorMarks()
+    {
+        // Only the tutor's marks: the learner's own ink is theirs to remove.
+        _store.RemoveWhere(a => a.Source == "tutor");
+        _anchors.Clear();
+        _watch = null;
+        MarksWentStale?.Invoke();
     }
 
     private static PxRect Bounds(IEnumerable<PxPoint> points)

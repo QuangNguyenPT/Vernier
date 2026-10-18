@@ -24,7 +24,13 @@ public static partial class Native
         public long PresentQpc;
     }
 
-    public const int Ok = 0, Timeout = 1, AccessLost = -2;
+    public const int Ok = 0, Timeout = 1, AccessLost = -2, Flat = 2;
+
+    /// <summary>The ABI this build speaks (VN_ABI in vernier_native.h). A DLL reporting any other number is not used.</summary>
+    public const int Abi = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MatchResult { public int X, Y; public double Score, Second; }
 
     [LibraryImport(Dll)] private static partial int vn_version();
     [LibraryImport(Dll)] public static partial int vn_dup_open(int left, int top, out nint handle);
@@ -49,10 +55,11 @@ public static partial class Native
     [LibraryImport(Dll)] public static partial long vn_ink_segments(nint handle);
     [LibraryImport(Dll)] public static partial int vn_ink_error(nint handle);
     [LibraryImport(Dll)] public static partial void vn_ink_destroy(nint handle);
+    [LibraryImport(Dll)] public static unsafe partial int vn_match(byte* image, int iw, int ih, byte* patch, int pw, int ph, Rect search, out MatchResult result);
 
     private static readonly Lazy<bool> Loaded = new(() =>
     {
-        try { return vn_version() >= 1; }
+        try { return (Version = vn_version()) == Abi; } // an older or newer DLL beside the exe is ignored, not half-used
         catch (DllNotFoundException) { return false; }
         catch (EntryPointNotFoundException) { return false; }
         catch (BadImageFormatException) { return false; }
@@ -60,6 +67,9 @@ public static partial class Native
 
     /// <summary>The native module is present and loads. False means: use the managed paths.</summary>
     public static bool Available => Loaded.Value;
+
+    /// <summary>What the DLL reported (0 when it did not load): diagnostics and the smoke test.</summary>
+    public static int Version { get; private set; }
 
     public static Rect From(PxRect r) => new() { Left = (int)Math.Round(r.X), Top = (int)Math.Round(r.Y), Right = (int)Math.Round(r.Right), Bottom = (int)Math.Round(r.Bottom) };
 
@@ -247,5 +257,27 @@ public sealed class NativeInk : IDisposable
     {
         if (_handle != 0) Native.vn_ink_destroy(_handle);
         _handle = 0;
+    }
+}
+
+/// <summary>The native patch matcher (match.cpp); the managed <see cref="PatchMatcher"/> when the module is not there.</summary>
+public sealed class NativePatchMatcher : IPatchMatcher
+{
+    public static IPatchMatcher Best => Native.Available ? new NativePatchMatcher() : PatchMatcher.Instance;
+
+    public unsafe PatchMatch? Match(GrayImage image, GrayImage patch, int left, int top, int right, int bottom)
+    {
+        fixed (byte* i = image.Pixels)
+        fixed (byte* p = patch.Pixels)
+        {
+            var code = Native.vn_match(i, image.Width, image.Height, p, patch.Width, patch.Height,
+                new Native.Rect { Left = left, Top = top, Right = right, Bottom = bottom }, out var r);
+            return code switch
+            {
+                Native.Ok => new PatchMatch(r.X, r.Y, r.Score, r.Second, false),
+                Native.Flat => new PatchMatch(0, 0, 0, 0, true),
+                _ => null,
+            };
+        }
     }
 }

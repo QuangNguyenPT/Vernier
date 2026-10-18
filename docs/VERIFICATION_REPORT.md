@@ -4,7 +4,36 @@ Date: 2026-10-11 · Machine: Windows 11 24H2, build 26100, x64, one display 2560
 
 This report separates what was **run against the real thing**, what was **simulated**, and what was **not verified**. A simulated test shows the logic is right; it is not evidence that a real service or OS path works.
 
-## Revision 8 status (version 0.4.0, 2026-10-18): read this first
+## Revision 9 status (version 0.4.0, 2026-10-18): read this first
+
+Run on Windows 11 build 26100, display on, Claude Code CLI signed in. The owner allowed the desktop tests and live runs (real model, real web) for this run. Designs were reviewed twice by a four-role panel (PM, architect, developer, QA) before building; their agreed cuts are listed under "Not done".
+
+| Command | Result |
+|---|---|
+| `scripts/publish.ps1` | **405 of 405 tests passed** in Release; single-file publish; the output folder holds **exactly `Vernier.exe` and `Vernier.Native.dll`** (162.8 MB; the script fails on any other file); smoke test of the published exe passed and logged `native module (ABI 2, loaded=True)` |
+| `VERNIER_LIVE=1`, `A_real_model_researches_unfamiliar_software_on_the_real_web_before_explaining` | Passed (25 s): the real model, told research was REQUIRED for a Blender Bevel-modifier question, called `web_research` through MCP against the real DuckDuckGo and real pages; at least 3 working sources were read; the answer explained Segments and ended with Sources |
+| `VERNIER_LIVE=1`, `A_real_model_shades_the_area_under_a_velocity_time_graph_and_uses_the_computed_number` | Passed (23 s) on the third run: the model called `graph_area` with three shapes, Vernier computed 24 + 60 + 6 = 90 m, the answer used 90. The first two runs are recorded honestly: in the first the model deliberately left the last piece to the learner (the guide's guided-learning rule; the question had not asked for the full answer); in the second the fixture's description line had been shortened by the screen list ("then fa…") and the model refused to guess the last second rather than invent it. The fixture was split into short lines; the assertion was not weakened |
+
+| Claim | Evidence |
+|---|---|
+| One exe plus one DLL | Publish script check above; `Tray_icon_…` now reads the icon from the executable and asserts it was found (`HasOwnIcon`) |
+| C++ is the base for heavy work: patch matching is native | `match.cpp` (`vn_match`) built at /W4 /WX; `The_native_matcher_gives_exactly_the_managed_answer`: 12 random cases, native and managed results identical to the last bit; the DLL reports `VN_ABI` 2 and a DLL with another number is not used |
+| Marks re-fit by context instead of all being removed | `MarkRefitTests`: a scroll moves each mark with its content (both matchers); only the mark whose content was replaced is removed and nothing else moves; a different page clears all; repeated rows (a table) are ambiguous, so the mark is removed, not moved to a lookalike (this test found that the ambiguity margin compared a fine score with a coarse one; fixed in both implementations); a blank area keeps its mark while it stays the same blank and loses it when it changes (the desktop test found that blank anchors were never removed; fixed). The desktop test `The_real_windows_work_end_to_end…` exercises the real capture path (this run found that marks outside the tracked window got no anchor; fixed: the search area always contains the marks) |
+| Graph areas computed in code | `GraphAreaTests` (pixel mapping with the y axis up, exact areas either winding, degenerate ticks and self-crossing outlines refused); `ToolOverlayTests` through the real executor: two shapes drawn as Region marks at the right physical pixels, labels "A1 ≈ 24 m", total 84 m, too-close ticks refused |
+| Research harness | `ResearchTests` (31): policy truth table (Blender, browser, unknown app → required; worksheet PDF → not, unless asking how a tool works); gate counts distinct working pages and re-asks exactly once with tools kept, adding a notice when still short; personal details stripped from queries; 16 address cases for the public-address rule (including `::ffff:127.0.0.1` and 169.254.169.254); a name resolving to loopback is refused at connect time and nothing reaches the local server; readable text drops scripts (including an injection string), navigation and markup; DuckDuckGo results unwrapped from their redirect, ads skipped; dead and empty pages do not count and at most two sources per site |
+| Card readable | `docs/screenshots/note-card-handwriting.png` (looked at): Segoe Print 17.5 px, near-white ink, larger formulas; a boxed formula that overflowed the card is now scaled to fit |
+| Faster | Reveal 110 ms fade, draw-on 140–300 ms (was 180 and 260–560), card wipe 260 ms (was 420); WpfMath is warmed at idle start; one `graph_area` call replaces draw + compute + label. Measured in the live runs: `graph_area` 13–20 ms, `overlay_write` 330–358 ms (the warm-up runs in the app, not in these tests) |
+
+### Not done / not verified
+
+- Agreed cuts from the review: no zoom (multi-scale) re-matching, because of false matches; no second search backend (DuckDuckGo only, behind `ISearchBackend`); no hedge-word trigger for research ("probably" in an answer does not force a re-ask), because of false re-asks; uncertainty is a prompt rule.
+- DuckDuckGo's HTML page can change or challenge automated use; the tool then says the search engine did not answer, and the answer carries a notice. The redirect re-check runs on every hop by construction (each hop is a new connection through the same check), but no test serves a real public redirect to a private address.
+- The research re-ask with Claude Code starts a second CLI process (several seconds); the per-turn prompt line is there so it is rarely needed. Not measured on many turns.
+- Re-fit was tested on synthetic pages and one real window; not judged on real scrolling documents, videos or zoom. A wrong move is guarded by the ambiguity margin, not proven impossible.
+- Single-file start-up time against the previous folder build was not measured; the first start unpacks the .NET runtime's native parts to a per-user cache.
+- The research notice dialog and the new Settings checkbox were not looked at on screen (the Settings screenshot shows the top of the page); the accessibility test covers the checkbox.
+
+## Revision 8 status (version 0.4.0, 2026-10-18)
 
 Run on Windows 11 build 26100, display on. The owner allowed the desktop tests to open windows for this run.
 

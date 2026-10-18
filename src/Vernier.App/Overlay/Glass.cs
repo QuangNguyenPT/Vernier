@@ -289,7 +289,7 @@ internal static class MarkPainter
         dc.DrawGeometry(null, PenOf(colour, width, false, false), g);
     }
 
-    /// <param name="reveal">A new tutor mark is drawn on along its length (about a third of a second, like a pen moving) as it
+    /// <param name="reveal">A new tutor mark is drawn on along its length (about a fifth of a second, like a quick pen stroke) as it
     /// fades in; a pointer ring also pulses three times. With Windows animations off it only fades. Once drawn it is static.</param>
     public static DrawingVisual Build(Annotation a, Func<PxPoint, Point> local, Size bounds, double pixelsPerDip, bool reveal)
     {
@@ -307,7 +307,7 @@ internal static class MarkPainter
         var centre = new Point(box.X + box.Width / 2, box.Y + box.Height / 2);
 
         using var dc = visual.RenderOpen();
-        if (reveal) dc.PushOpacity(0, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)) { EasingFunction = ease }.CreateClock());
+        if (reveal) dc.PushOpacity(0, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(110)) { EasingFunction = ease }.CreateClock());
 
         // A dashed (uncertain) mark keeps its dashes, so it is not drawn on.
         void Draw(Geometry g, Pen ink, Pen? under)
@@ -315,7 +315,7 @@ internal static class MarkPainter
             if (motion && !uncertain)
             {
                 var length = MarkShapes.Length(g);
-                var duration = TimeSpan.FromMilliseconds(Math.Clamp(220 + length * 0.5, 260, 560));
+                var duration = TimeSpan.FromMilliseconds(Math.Clamp(120 + length * 0.25, 140, 300)); // quick: the mark is there by the time the eye gets there
                 ink = DrawOn(ink, length, duration, ease);
                 under = under is null ? null : DrawOn(under, length, duration, ease);
             }
@@ -371,6 +371,21 @@ internal static class MarkPainter
             case AnnotationKind.Label:
                 labelAt = pts[0];
                 break;
+            case AnnotationKind.Region when pts.Count >= 3:
+            {
+                // A shaded area on a graph (graph_area): straight edges, because the shape is what was added up; a light fill, an outline drawn on.
+                var region = new StreamGeometry();
+                using (var g = region.Open())
+                {
+                    g.BeginFigure(pts[0], true, true);
+                    g.PolyLineTo(pts.Skip(1).ToList(), true, true);
+                }
+                region.Freeze();
+                dc.DrawGeometry(BrushOf(a.Color, 60), null, region);
+                Draw(region, pen, halo);
+                labelAt = new Point(region.Bounds.X + 6, region.Bounds.Y + region.Bounds.Height * 0.55 + 14);
+                break;
+            }
             case AnnotationKind.Note when a.Note is { } note && pts.Count >= 2:
             {
                 // A written card: drawn once to a bitmap (see NoteRenderer); it wipes in from the top like writing appearing.
@@ -380,7 +395,7 @@ internal static class MarkPainter
                     var wipeStart = new GradientStop(Colors.Black, -0.15);
                     var wipeEdge = new GradientStop(Colors.Transparent, 0.0);
                     var mask = new LinearGradientBrush(new GradientStopCollection { wipeStart, wipeEdge }, new Point(0, 0), new Point(0, 1));
-                    var duration = TimeSpan.FromMilliseconds(SystemParameters.ClientAreaAnimation ? 420 : 1);
+                    var duration = TimeSpan.FromMilliseconds(SystemParameters.ClientAreaAnimation ? 260 : 1);
                     wipeStart.BeginAnimation(GradientStop.OffsetProperty, new DoubleAnimation(-0.15, 1.0, duration) { EasingFunction = ease });
                     wipeEdge.BeginAnimation(GradientStop.OffsetProperty, new DoubleAnimation(0.0, 1.15, duration) { EasingFunction = ease });
                     dc.PushOpacityMask(mask);
@@ -398,7 +413,7 @@ internal static class MarkPainter
 
         if (a.Label is { Length: > 0 } label && labelAt is { } spot)
         {
-            var text = new FormattedText(label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, LabelFace, 12.5, System.Windows.Media.Brushes.White, pixelsPerDip) { MaxTextWidth = 260 };
+            var text = new FormattedText(label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, LabelFace, 14, System.Windows.Media.Brushes.White, pixelsPerDip) { MaxTextWidth = 260 };
             // A rounded tag with a dot of the mark's colour; kept on the glass even when the mark sits against a screen edge.
             double w = text.Width + 26, h = text.Height + 8;
             var plate = new Rect(Math.Clamp(spot.X, 0, Math.Max(0, bounds.Width - w)), Math.Clamp(spot.Y - h - 4, 0, Math.Max(0, bounds.Height - h)), w, h);

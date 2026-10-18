@@ -95,6 +95,8 @@ public static class AppServices
         foreach (var tool in ComputerTools.All()) registry.Add(tool);
         foreach (var tool in NoteTools.All()) registry.Add(tool);
         foreach (var tool in GoogleTools.All()) registry.Add(tool);
+        var web = new Vernier.Core.Research.SafeWeb();
+        foreach (var tool in WebTools.All(new Vernier.Core.Research.WebResearcher(new Vernier.Core.Research.DuckDuckGoSearch(web), web))) registry.Add(tool);
         Tools = new ToolExecutor(registry, new UiApprover(), ToolGate, m => Log.Warn(m));
         try { Mcp = new McpServer(Tools, m => Log.Warn(m)); }
         catch (System.Net.HttpListenerException e) { Log.Error("The local tool server could not start; Claude Code answers will have no tools", e); }
@@ -115,6 +117,7 @@ public static class AppServices
         Context.ReadingChanged += reading => OnUi(() => Overlays.SetWatching(reading));
         _ = new Context.EpisodeSummariser(engine); // only acts when a local context model is chosen in Settings
         Overlays.MarksWentStale += Session.NoteMarksWentStale;
+        Overlays.MarksRefit += Session.NoteMarksRefit;
 
         try { SpeechOut = new SapiSpeechOutput(); }
         catch (Exception e) { Log.Warn("Speech output unavailable: " + e.Message); }
@@ -241,6 +244,9 @@ public partial class App : Application
         MainWindow = main;
         main.Show();
         AppServices.Overlays.Start(); // the glass goes up once and stays
+        // The first formula layout loads WpfMath's fonts (~300 ms); do it while idle, not inside the tutor's first overlay_write.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
+            NoteRenderer.Render(new Vernier.Core.Annotations.NoteContent("", [new(Vernier.Core.Annotations.NoteLineKind.Step, "warm", @"v=\frac{1}{2}at^{2}")], true), 200, 1));
         StartTray(main);
 
         var shots = Array.IndexOf(e.Args, "--screenshots");
@@ -258,7 +264,7 @@ public partial class App : Application
                 timer.Stop();
                 main.VisitAllPages(); main.OpenAskBar(pen: true); main.Bar?.HideBar();
                 var problem = await SmokeCheckAsync();
-                AppServices.Log.Info(problem is null ? "Smoke: native module, MCP server and tools all answered." : "Smoke FAILED: " + problem);
+                AppServices.Log.Info(problem is null ? $"Smoke: native module (ABI {Native.Version}, loaded={Native.Available}), MCP server and tools all answered." : "Smoke FAILED: " + problem);
                 AppServices.Quitting = true;
                 Shutdown(problem is null ? 0 : 3);
             };
@@ -279,13 +285,25 @@ public partial class App : Application
             AppServices.Settings.ContextNoticeShown = true;
             AppServices.SaveSettings();
         }
+        if (!AppServices.Settings.WebResearchNoticeShown)
+        {
+            // A new kind of outbound request: an explicit choice, never a silent default.
+            var research = ConfirmDialog.Ask(main, "The tutor now researches on the web",
+                "So it does not guess how software works or what a page claims, the tutor searches the web and reads several pages before it explains a web page, an app such as Blender, " +
+                "or anything it is not sure of. The search words are written by the tutor from your question and screen, with names, emails and numbers taken out; the searches go to DuckDuckGo " +
+                "and the pages are fetched from this computer. Each search is shown while it runs. Pause and Share-Safe stop it, and you can turn it off in Settings › Privacy.",
+                "Keep research on");
+            AppServices.Settings.AllowWebResearch = research;
+            AppServices.Settings.WebResearchNoticeShown = true;
+            AppServices.SaveSettings();
+        }
     }
 
     /// <summary>The published app's own self-check: the native module loads when it was shipped, and the MCP server answers a real client.</summary>
     private static async Task<string?> SmokeCheckAsync()
     {
         if (File.Exists(Path.Combine(AppContext.BaseDirectory, "Vernier.Native.dll")) && !Native.Available) // linked next to the exe (Vernier.App.csproj)
-            return "Vernier.Native.dll is in the build but does not load (" + Native.LastError.ToString("X8") + ").";
+            return $"Vernier.Native.dll is in the build but is not in use (reports ABI {Native.Version}, this build needs {Native.Abi}; last error {Native.LastError:X8}).";
         if (AppServices.Mcp is not { } mcp) return "the MCP server did not start.";
         var turn = new ToolTurn(ScreenTools.Names, CancellationToken.None);
         using var grant = mcp.Open(turn);
@@ -313,7 +331,7 @@ public partial class App : Application
 
     private void StartTray(MainWindow main)
     {
-        var tray = AppServices.Tray = new TrayIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "vernier.ico"), "Vernier · tutor on your screen");
+        var tray = AppServices.Tray = new TrayIcon(Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "Vernier.exe"), "Vernier · tutor on your screen");
         tray.Activated = main.ShowWorkspace;
         if (AppServices.Context is { } hub) _ = new Context.Proactive(hub, tray, question => { main.OpenAskBar(pen: false); main.Bar?.Prefill(question); });
         tray.Menu = () =>

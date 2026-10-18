@@ -19,7 +19,8 @@ public sealed record TutorRequest(
     ScreenIndex? Screen = null,
     WorkContext? Work = null,
     Context.ContextSelection? Episodes = null,
-    string? SessionDigest = null);
+    string? SessionDigest = null,
+    Research.ResearchDemand? Research = null);
 
 public sealed class PipelineCallbacks
 {
@@ -60,10 +61,28 @@ public sealed class TutorPipeline(MasteryTutor tutor, Verifier verifier, Learnin
         if (!vision && attachments.Any(a => a.Image is not null))
             notices.Add($"{provider.DisplayName} is text-only here, so attached pictures were not sent.");
         var chat = tutor.BuildRequest(request.Mode, request.Question, context, request.History, settings.Learner, LearningFor(provider), vision, request.NotesContext, attachments,
-            request.AllowActions, request.Screen, provider.Capabilities.Tools ? request.Tools : null, request.Work, request.Episodes, request.SessionDigest);
+            request.AllowActions, request.Screen, provider.Capabilities.Tools ? request.Tools : null, request.Work, request.Episodes, request.SessionDigest, request.Research);
 
         Enter(PipelineStage.Teach);
         var (raw, usage) = await StreamAsync(provider, chat, callbacks, ct).ConfigureAwait(false);
+
+        // Research gate: an answer that had to be grounded and was not is asked for again, once, with the reason.
+        var demand = request.Research ?? Research.ResearchDemand.None;
+        var offered = chat.Tools?.Turn.Allowed.Contains("web_research") == true;
+        Research.ResearchLedger? Ledger() => chat.Tools?.Turn.State.TryGetValue(Research.ResearchLedger.Key, out var l) == true ? l as Research.ResearchLedger : null;
+        if (Research.ResearchGate.Check(demand, Ledger(), offered) is { } reask)
+        {
+            Enter(PipelineStage.Correct);
+            try
+            {
+                (raw, var moreUsage) = await StreamAsync(provider, tutor.BuildResearchReask(chat, raw, reask), callbacks, ct).ConfigureAwait(false);
+                usage = Add(usage, moreUsage);
+                log.Info($"Research re-ask: {Ledger()?.Working ?? 0} working source(s) after it.");
+            }
+            catch (ProviderException e) { notices.Add($"The answer was not researched as required and could not be asked again ({e.Kind})."); }
+            if ((Ledger()?.Working ?? 0) < Research.ResearchPolicy.MinSources)
+                notices.Add($"This explanation is based on {Ledger()?.Working ?? 0} working web source(s), fewer than the {Research.ResearchPolicy.MinSources} required; check details of the software or page yourself.");
+        }
         var output = TutorOutput.Parse(raw);
 
         Enter(PipelineStage.Verify);

@@ -3,6 +3,7 @@
 //  - WIC: high-quality downscale and PNG encoding of a capture.
 //  - Edge light: the capture light, composited by DWM and animated on its own thread.
 //  - Ink: the pen's stroke, drawn on its own thread straight into DWM, fading away by itself.
+//  - Match: finding a mark's anchor patch again after the content under it moved (scroll, reflow).
 // C ABI only. Every function returns 0 on success or a negative VN_E_* / HRESULT on failure; callers fall back to managed code.
 #pragma once
 #include <stdint.h>
@@ -20,6 +21,10 @@
 #define VN_E_NO_OUTPUT (-3)     // no output matches the monitor
 #define VN_E_NO_FRAME (-4)      // nothing captured yet
 #define VN_E_UNSUPPORTED (-5)   // duplication refused (remote session, driver, wrong adapter)
+#define VN_FLAT 2               // vn_match: the patch has too little texture to be recognised
+
+// The ABI version vn_version returns. The managed side refuses a DLL with any other number (Native.Abi).
+#define VN_ABI 2
 
 typedef struct vn_rect { int32_t left, top, right, bottom; } vn_rect;
 
@@ -82,3 +87,14 @@ VN_API int64_t vn_ink_segments(void* handle);
 // The last HRESULT a draw call returned (0 if none), for diagnostics.
 VN_API int32_t vn_ink_error(void* handle);
 VN_API void vn_ink_destroy(void* handle);
+
+// ---- Match ----
+typedef struct vn_match_result
+{
+    int32_t x, y;   // best top-left position of the patch in the image
+    double score;   // zero-mean normalised cross-correlation there, -1..1
+    double second;  // best coarse score away from the best peak: close to score means the match is ambiguous
+} vn_match_result;
+// Searches 8-bit grey `patch` (pw x ph) in `image` (iw x ih, both row-major, no padding) over candidate top-left positions
+// [search.left, search.right) x [search.top, search.bottom). VN_OK, VN_FLAT (patch has no texture), or VN_E_ARG.
+VN_API int32_t vn_match(const uint8_t* image, int32_t iw, int32_t ih, const uint8_t* patch, int32_t pw, int32_t ph, vn_rect search, vn_match_result* out);

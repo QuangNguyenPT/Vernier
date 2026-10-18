@@ -106,6 +106,19 @@ public sealed class TutorSession
         Changed?.Invoke();
     }
 
+    /// <summary>Some marks moved with their content (a scroll, a reflow) and some whose content is gone were removed.</summary>
+    public void NoteMarksRefit(int moved, int removed)
+    {
+        if (IsBusy) return;
+        Status = (moved, removed) switch
+        {
+            ( > 0, 0) => $"Moved {moved} mark(s) with the page.",
+            (0, _) => $"Removed {removed} mark(s) whose content is no longer on the screen.",
+            _ => $"Moved {moved} mark(s) with the page and removed {removed} whose content is gone.",
+        };
+        Changed?.Invoke();
+    }
+
     public bool CaptureBlocked => !_settings.AllowScreenCapture || _policy.Mode == CapturePolicyMode.ShareSafe || IsPaused;
 
     public string CaptureBlockedReason =>
@@ -208,6 +221,7 @@ public sealed class TutorSession
         var notesMayGo = provider.Capabilities.IsLocal || _settings.AllowSendNotesToRemote;
         string[] names = !string.IsNullOrWhiteSpace(_settings.VaultPath) && notesMayGo ? [.. ToolNames, .. NoteTools.Names] : ToolNames;
         if (AppServices.Google.IsConnected) names = [.. names, .. GoogleTools.WriteNames, .. notesMayGo ? GoogleTools.ReadNames : []];
+        if (_settings.AllowWebResearch) names = [.. names, .. WebTools.Names];
         return names;
     }
 
@@ -397,8 +411,12 @@ public sealed class TutorSession
                 hub.Engine.Asked(question, DateTimeOffset.UtcNow);
                 LastContext = episodes;
             }
+            // Whether this answer must be grounded in web sources is decided here, by code (ResearchPolicy), and checked after it (ResearchGate).
+            var research = tools?.Turn.Allowed.Contains("web_research") == true
+                ? Vernier.Core.Research.ResearchPolicy.Decide(context?.App, screen is null ? null : ProcessName(screen.Foreground), question)
+                : Vernier.Core.Research.ResearchDemand.None;
             var request = new TutorRequest(mode, question, context, [.. _history], _sessionId, notesContext, _settings.AllowComputerControl, attachments, tools, index, work, episodes,
-                _memory.Render(MasteryTutor.HistoryTurns));
+                _memory.Render(MasteryTutor.HistoryTurns), research);
             called = true;
             var turn = await Task.Run(() => _pipeline.RunAsync(request, provider, checker, callbacks, ct), ct);
             var allowActions = _settings.AllowComputerControl && context is not null && ActionWindow != 0;
@@ -501,6 +519,8 @@ public sealed class TutorSession
         "overlay_clear" => "clearing marks",
         "look" => "looking closer",
         "find_on_screen" => "finding it on screen",
+        "web_research" => "researching on the web",
+        "graph_area" => "measuring the area on the graph",
         _ => "using " + tool,
     };
 

@@ -326,11 +326,13 @@ public class WindowsRealApiTests(ITestOutputHelper output)
     [Fact]
     public void Tray_icon_is_added_to_the_notification_area_and_removed() => OnSta(() =>
     {
-        var ico = Path.Combine(AppContext.BaseDirectory, "Assets", "vernier.ico");
-        Assert.True(File.Exists(ico), "the icon file is not next to the executable");
-        using (var tray = new TrayIcon(ico, "Vernier test"))
+        // The published app is one file, so the tray icon is taken from the executable itself.
+        var exe = Path.Combine(AppContext.BaseDirectory, "Vernier.exe");
+        if (!File.Exists(exe)) exe = Environment.ProcessPath!;
+        using (var tray = new TrayIcon(exe, "Vernier test"))
         {
             Assert.True(tray.IsVisible);
+            Assert.True(tray.HasOwnIcon, $"no icon could be read from {exe}");
             tray.SetTooltip("Vernier test, updated");
         }
         return Task.CompletedTask;

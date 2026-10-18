@@ -86,7 +86,7 @@ The ask bar rises 8 px into place as it fades in (180–220 ms, ease-out); with 
 
 ## The note card and the pen
 
-- **Note card** (`overlay_write`): always dark (`#0C141B` at 94 % with a `#45596A` hairline and a 10 px radius), the tutor's blue rule on the left, a small-caps blue title, steps in handwriting (Ink Free, 19 px, ink colour), formulas typeset at 1.25×, the result in a blue-outlined box, checks in green with a tick, errors in red with a cross, asides in italic soft ink. It wipes in from the top in 420 ms (instantly with Windows animations off). Samples: `docs/screenshots/note-card-handwriting.png`, `note-card-clean.png`.
+- **Note card** (`overlay_write`): always dark (`#0C141B` at 94 % with a `#45596A` hairline and a 10 px radius), the tutor's blue rule on the left, a small-caps blue title, steps in handwriting (Segoe Print, 17.5 px on a 28 px line, near-white ink; Ink Free was too thin to read at a glance), formulas typeset at 1.25×, the result in a blue-outlined box, checks in green with a tick, errors in red with a cross, asides in italic soft ink. Formulas wider than the card are scaled down to fit, never cut off. It wipes in from the top in 260 ms (instantly with Windows animations off). Samples: `docs/screenshots/note-card-handwriting.png`, `note-card-clean.png`.
 - **Pen ink**: marker yellow with a thin dark halo, 4 px, drawn the moment the cursor moves; it holds 1.4 s after the pen lifts and fades over 0.35 s. It never stays on the screen; only the tutor's marks and cards do.
 
 ## Signature elements
@@ -125,6 +125,8 @@ The tutor writes on the screen the way a teacher writes on paper, so no mark is 
 | Label | A rounded tag (corner = half its height, at most 10 px) with a dot of the mark's colour and a faint light rim |
 | Note card | 12 px radius, lit from above (paper a shade lighter at the top, rim brighter at the top), on a soft shadow (22 px blur, 5 px down); the boxed result has a 9 px radius |
 
-Every shape is smooth (Catmull-Rom through its samples, so there are no corners where samples join) and deterministic for its mark, so a mark rebuilt on another monitor is the same mark. A new mark is **drawn on** along its length in 260–560 ms (eased out) as it fades in, like a pen moving; a dashed (uncertain) mark and everything with Windows animations off only fades.
+| Graph area | Straight edges (the shape is what was added up), a 24 % fill of the tutor's blue, an outline drawn on, and its area as the label |
+
+Every shape is smooth (Catmull-Rom through its samples, so there are no corners where samples join) and deterministic for its mark, so a mark rebuilt on another monitor is the same mark. A new mark is **drawn on** along its length in 140–300 ms (eased out) as it fades in, like a pen moving; a dashed (uncertain) mark and everything with Windows animations off only fades.
 
 **Dismissing a note card.** Each card has a small round × in its top-right corner (24 px, dark in every theme, blue rim on hover). It is the only part of the overlay that takes a click; everything else stays click-through. Ask bar › Clear marks still removes every mark at once.

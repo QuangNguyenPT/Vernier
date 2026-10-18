@@ -130,6 +130,7 @@
                     <CheckBox x:Name="AllowCapture" Content="Let Vernier look at my screen when I ask or mark something" Click="OnPrivacy"/>
                     <CheckBox x:Name="AllowMic" Content="Allow the microphone while I hold the talk button" Click="OnPrivacy"/>
                     <CheckBox x:Name="AllowActivity" Content="Keep context of my work: apps, pages and videos, for how long, what I rewound" Click="OnPrivacy"/>
+                    <CheckBox x:Name="AllowResearch" Content="Let the tutor research on the web before explaining pages, software and anything it is unsure of" Click="OnPrivacy" Margin="0,6,0,0"/>
                     <CheckBox x:Name="ReadScreen" Content="Also read the text of the window in front when it changes (local OCR, memory only)" Click="OnPrivacy" Margin="26,4,0,0"/>
                     <CheckBox x:Name="Proactive" Content="Offer help when I seem stuck, such as rewinding the same part of a video (a notification, at most twice an hour; nothing is sent)" Click="OnPrivacy" Margin="26,4,0,0"/>
                     <TextBlock Style="{StaticResource Soft}" FontSize="12" Margin="26,2,0,4" TextWrapping="Wrap"

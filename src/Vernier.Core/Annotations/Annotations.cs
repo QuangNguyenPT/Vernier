@@ -2,7 +2,7 @@ using Vernier.Core.Geometry;
 
 namespace Vernier.Core.Annotations;
 
-public enum AnnotationKind { Arrow, Bracket, Highlight, Circle, Path, Freehand, Label, Underline, Point, Note }
+public enum AnnotationKind { Arrow, Bracket, Highlight, Circle, Path, Freehand, Label, Underline, Point, Note, Region }
 
 /// <summary>
 /// A structured mark on the screen. <see cref="Points"/> are virtual-desktop physical pixels:
@@ -145,6 +145,14 @@ public sealed class AnnotationStore
             if (moved.Points.All(desktop.Contains)) result.Add(moved);
         }
         _items = result;
+        Changed?.Invoke();
+    }
+
+    /// <summary>Moves single marks (their content scrolled or reflowed, see <see cref="MarkRefit"/>). Not an undo step: it follows the screen, it is not an edit.</summary>
+    public void Shift(IReadOnlyDictionary<Guid, PxPoint> moves)
+    {
+        if (moves.Count == 0) return;
+        _items = _items.Select(a => moves.TryGetValue(a.Id, out var d) ? a.Offset(d.X, d.Y) : a).ToArray();
         Changed?.Invoke();
     }
 

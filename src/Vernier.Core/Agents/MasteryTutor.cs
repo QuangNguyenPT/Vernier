@@ -121,12 +121,17 @@ public sealed class MasteryTutor
         TutorMode mode, string question, ContextSnapshot? context, IReadOnlyList<ChatMessage> history,
         LearnerProfile learner, LearningSummary learning, bool attachImage, string? notesContext,
         IReadOnlyList<Attachment>? attachments = null, bool allowActions = false, ScreenIndex? screen = null, Providers.ToolSession? tools = null, WorkContext? work = null, Context.ContextSelection? episodes = null,
-        string? sessionDigest = null)
+        string? sessionDigest = null, Research.ResearchDemand? research = null)
     {
         var system = BuildSystem(learner, learning, allowActions, tools is not null);
         var user = new StringBuilder();
         user.AppendLine(ModeInstruction(mode));
         if (context?.App is { } app) user.AppendLine($"The learner is working in {app.Name} ({app.Category}). {app.Hints}");
+        // Decided by Vernier's code for this turn, not a suggestion: the answer is checked against it.
+        if (research is { Required: true } r)
+            user.AppendLine($"Research: REQUIRED for this answer, because {r.Reason}. Call web_research first and read at least {Research.ResearchPolicy.MinSources} working sources, then explain in your own words for this learner.");
+        else if (tools?.Turn.Allowed.Contains("web_research") == true)
+            user.AppendLine("Research: if you are not sure of a fact, a version detail or how a tool works, call web_research before you state it.");
         if (episodes is { IsEmpty: false } || work is { IsEmpty: false })
         {
             user.AppendLine("What Vernier has observed of the learner's work on this computer (each fact with its source and age; the learner's own words take precedence; use it to know which video, page or problem they mean, without listing it back):");
@@ -219,6 +224,15 @@ public sealed class MasteryTutor
             "If the checker is wrong because it misread your expression, keep your result and write the expression unambiguously. " +
             "Remove any annotation or action that was rejected unless you can place it properly. Your marks already on screen stay; do not mark again. Include the vernier block again."));
         return original with { Messages = messages, Tools = null };
+    }
+
+    /// <summary>The second attempt of an answer that had to be researched and was not: the tools stay, so it can research now.</summary>
+    public ChatRequest BuildResearchReask(ChatRequest original, string previousAnswer, string instruction)
+    {
+        var messages = original.Messages.ToList();
+        messages.Add(ChatMessage.Assistant(previousAnswer));
+        messages.Add(ChatMessage.User(instruction + " Your marks already on screen stay; do not mark again unless the research changes what you would point at. Include the vernier block again."));
+        return original with { Messages = messages };
     }
 
     private static string ModeInstruction(TutorMode mode) => mode switch

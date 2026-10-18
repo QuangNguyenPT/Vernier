@@ -41,6 +41,14 @@ public sealed class TrayIcon : IDisposable
     [DllImport("user32.dll")] private static extern bool DestroyMenu(nint menu);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint LoadImage(nint inst, string name, uint type, int cx, int cy, uint load);
     [DllImport("user32.dll")] private static extern bool DestroyIcon(nint icon);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern uint ExtractIconEx(string file, int index, out nint large, out nint small, uint count);
+
+    // The notification area wants the small icon; the large one is not needed.
+    private static nint Keep(nint small, nint large)
+    {
+        if (large != 0) DestroyIcon(large);
+        return small;
+    }
     [DllImport("user32.dll")] private static extern nint LoadIcon(nint inst, nint name);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string name);
 
@@ -64,12 +72,16 @@ public sealed class TrayIcon : IDisposable
     /// <summary>Builds the right-click menu each time it opens, so it always shows current state.</summary>
     public Func<IReadOnlyList<Item>>? Menu { get; set; }
 
-    public TrayIcon(string iconFile, string tooltip)
+    /// <param name="iconSource">An .ico file, or an executable whose own icon is used (the published app is one file, so its icon lives in Vernier.exe).</param>
+    public TrayIcon(string iconSource, string tooltip)
     {
         // A message-only style window: never shown, exists to receive the icon's callbacks.
         _source = new HwndSource(new HwndSourceParameters("Vernier tray") { Width = 0, Height = 0, WindowStyle = 0 });
         _source.AddHook(Hook);
-        _icon = LoadImage(0, iconFile, 1 /* IMAGE_ICON */, 0, 0, 0x10 /* LR_LOADFROMFILE */ | 0x40 /* LR_DEFAULTSIZE */);
+        _icon = iconSource.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? (ExtractIconEx(iconSource, 0, out var large, out var small, 1) > 0 ? Keep(small, large) : 0)
+            : LoadImage(0, iconSource, 1 /* IMAGE_ICON */, 0, 0, 0x10 /* LR_LOADFROMFILE */ | 0x40 /* LR_DEFAULTSIZE */);
+        HasOwnIcon = _icon != 0;
         if (_icon == 0) _icon = LoadIcon(0, 32512 /* IDI_APPLICATION: a plain icon is better than an invisible one */);
         _data = new NOTIFYICONDATA
         {
@@ -81,6 +93,8 @@ public sealed class TrayIcon : IDisposable
     }
 
     public bool IsVisible => _added;
+    /// <summary>Vernier's own icon was found (false: the plain Windows application icon stands in).</summary>
+    public bool HasOwnIcon { get; }
 
     public void SetTooltip(string tooltip)
     {

@@ -11,6 +11,7 @@
 | A short digest of your learning record (concept names, levels, open mistakes) | **Off** for remote providers | With each question, once you allow "notes, files and learning summary" | The provider you selected |
 | Notes from your vault (searched or read by the tutor, or a note you ask about) / files from your workspace | **Off** for remote providers | Only once notes may be sent: the note tools are not even offered to a remote model before that | The provider you selected |
 | The address of the video you are watching (YouTube or Vimeo only) | With context on | When the tutor calls `video_info` during an answer, to get the video's title and channel | YouTube's or Vimeo's public oEmbed endpoint |
+| Web research: search words written by the tutor from your question and screen (emails, phone and card-like numbers, long tokens and full addresses removed by code, at most 140 characters), and requests for the pages found | **On**, disclosed at first run and on upgrade (owner's direction, 2026-10-18) | During a screen answer, when the tutor calls `web_research` (required by code for web pages, tools such as Blender, unknown apps and "how does this work" questions). At most 4 searches and about 8 pages per search; each search is shown in the ask bar | DuckDuckGo (the search words); the sites in the results (an ordinary page request from this computer: no cookies, no proxy, public addresses only) |
 | Text added to your Google Doc "Vernier notes" | Not connected | Each addition only after you approve its exact text | Google, in your account |
 | Microphone audio | Mic **off** | Never. Recognition is local (Windows SAPI) | Nobody |
 | Telemetry, analytics, crash reports | — | Never. There is none | Nobody |
@@ -22,7 +23,7 @@ Between questions, Vernier keeps context by code, on this machine:
 - **Metadata** (on by default): which app and window is in front and for how long (Windows event hooks, no polling of other processes' memory), the browser's address (accessibility tree, browsers only; query strings, fragments and sign-in parts removed), the media session's title and position (Windows media controls). Private browser windows (title masked; address and screen text not kept), password managers and apps you list are skipped.
 - **Screen text** (needs the screen permission and "also read the text"): when the window in front changes and then settles, its text is read by local OCR at most every 4 seconds. That text is kept in memory only and is never written to disk. A small light at the top centre of the screen is on while it reads.
 - **Pen ink**: your strokes are drawn by Vernier's own overlay (excluded from captures when you ask for exclusion), kept in memory as points until you send the question or take them back, and never written to disk.
-- **Marks**: while the tutor's marks are on screen, a 48×48 grayscale thumbnail of the marked area is compared about once a second so marks that no longer point at the right thing are removed. Memory only.
+- **Marks**: while the tutor's marks are on screen, a 48×48 grayscale thumbnail of the marked area is compared about once a second. When it changes, each mark looks for the small grey patch of what was under it (kept from when it appeared, at half scale, Vernier's own windows left out) and moves with it (a scroll, a reflow) or is removed alone; everything goes only when most of it is gone or the window shows another page. Memory only.
 
 All of it stops in Pause and in Share-Safe. Questions typed in the workspace never capture the screen.
 
@@ -56,6 +57,7 @@ API keys are read from an environment variable if set, otherwise from **Windows 
 | Notes, files and learning-record digest to a remote provider | `AllowSendNotesToRemote` | `FilesPage.ConsentToSend`, `TutorPipeline` (digest withheld), `TutorSession.ToolNamesFor` (note tools and `gdocs_read` not offered) |
 | Assisted input (the tutor's hands) | `AllowComputerControl` | `computer_act` gate; every step needs your approval (`ToolExecutor` → `UiApprover`) |
 | Writing to your vault / your Google Doc | — | `notes_write` / `gdocs_append` are Act tools: each needs your approval of the exact change |
+| Web research | `AllowWebResearch` | `TutorSession.ToolNamesFor` (tool not offered when off; tools exist only for screen questions, so never in Pause, Share-Safe or with capture off); `SafeWeb` (public addresses checked at connect time on every hop, size and time caps); `QuerySanitizer` |
 | Suggestions | `ProactiveSuggestions` | `Proactive.Offer`; local only, at most two an hour |
 
 Pause (button, tray or Ctrl+Alt+P) cancels the running request, puts the pen down, cancels the microphone and stops speech, blocks capture and stops context until resumed. If Windows refuses a capture (locked session, secure desktop) a screen question is not sent, and you are told why.
@@ -68,6 +70,8 @@ During a screen question the model can call Vernier's tools, through native tool
 |---|---|---|
 | `find_on_screen`, `look` | Observe | Screen permission; the capture light is on |
 | `overlay_mark`, `overlay_marks`, `overlay_write`, `overlay_clear` | Annotate | Marks and note cards only (text the tutor wrote, never anything read from your files); refused when the area changed since the capture; a card is placed on free space and never over Vernier's own windows; the tutor cannot remove your ink |
+| `graph_area` | Annotate | Shaded regions with code-computed areas; the axis reading is checked (ticks apart, values different, shapes inside the screenshot) and labelled approximate |
+| `web_research` | Observe | Research setting; query cleaned of personal details; DuckDuckGo search, then pages fetched only from public addresses (no cookies, no proxy, 1.5 MB and 8 s per page, 3 redirects each re-checked); page text fenced as untrusted; 4 searches per answer |
 | `session_recall` | Observe | Earlier turns of this conversation only; output fenced |
 | `get_context` | Observe | Context setting; output fenced |
 | `video_info` | Observe | Only YouTube and Vimeo addresses, sent to their own oEmbed endpoints; output fenced |
@@ -97,7 +101,7 @@ A note change (the concept note and the index of concepts) is checked against wh
 
 | Threat | Mitigation | Residual risk |
 |---|---|---|
-| **Prompt injection** from screen text, web pages, documents, notes, file contents, tool results | Wrapped in `<untrusted>` fences that cannot be closed from inside; the system prompt says fenced text is never instructions, and the tutor is told never to act on instructions from the screen; injection-shaped screen text is dropped from context and raises a visible notice; no tool runs a shell, opens a URL of the model's choosing or writes without your approval | The model may still be *influenced* in what it says or proposes; anything with an effect needs your approval of the specific step |
+| **Prompt injection** from screen text, web pages, documents, notes, file contents, tool results | Wrapped in `<untrusted>` fences that cannot be closed from inside; the system prompt says fenced text is never instructions, and the tutor is told never to act on instructions from the screen; injection-shaped screen text is dropped from context and raises a visible notice; no tool runs a shell or writes without your approval; the only pages fetched are search results on public addresses (`web_research`), read as text and fenced | The model may still be *influenced* in what it says or proposes; anything with an effect needs your approval of the specific step |
 | Model proposes harmful **input** | Off by default; per-step approval with an on-screen preview; targets resolved by code, not guessed; live re-check; refused in terminals, elevated windows, password fields and Vernier; blocked chords; Esc revokes | An approved step can still be the wrong idea |
 | **Approval fatigue or a stale card** | One card per step, with the target marked; unanswered cards close as "no" | A learner can still click Allow without reading |
 | Model output treated as trusted | Structured block parsed defensively; numbers recomputed by code; annotations bounds-checked; no model output is executed | Prose can still be wrong where nothing is mechanically checkable |

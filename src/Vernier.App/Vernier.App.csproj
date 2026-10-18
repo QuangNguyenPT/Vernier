@@ -25,9 +25,9 @@
     <ProjectReference Include="..\Vernier.Core\Vernier.Core.csproj" />
     <PackageReference Include="System.Speech" Version="10.0.12" />
     <Resource Include="Assets\vernier.ico" />
-    <Content Include="Assets\vernier.ico" CopyToOutputDirectory="PreserveNewest" />
-    <!-- Built by scripts/build-native.ps1. Optional: every native feature has a managed fallback. -->
-    <Content Include="native\Vernier.Native.dll" Condition="Exists('native\Vernier.Native.dll')" CopyToOutputDirectory="PreserveNewest" Link="Vernier.Native.dll" />
+    <!-- Built by scripts/build-native.ps1. Optional: every native feature has a managed fallback.
+         The one file shipped beside Vernier.exe: everything else is inside the single-file executable (scripts/publish.ps1). -->
+    <Content Include="native\Vernier.Native.dll" Condition="Exists('native\Vernier.Native.dll')" CopyToOutputDirectory="PreserveNewest" Link="Vernier.Native.dll" ExcludeFromSingleFile="true" />
     <InternalsVisibleTo Include="Vernier.Tests" />
   </ItemGroup>
 

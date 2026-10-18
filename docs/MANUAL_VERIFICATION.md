@@ -102,11 +102,19 @@ Use a harmless target (Notepad, with nothing unsaved).
 - [ ] A note card shows a small × in its top-right corner. Clicking it removes that card only, without taking focus from the window you were in; the tutor's other marks stay.
 - [ ] Tutor marks look hand-drawn: a loop round the target (not a box), a translucent swipe for a highlight, a brace, a bowed arrow; each draws on in about a third of a second.
 
+- [ ] Scroll the page a little with marks on it: the marks move with their content. Scroll so one marked line leaves the screen: only that mark goes. Open another page in the same window: all marks go.
+- [ ] Open a velocity–time graph and ask for the displacement: the region is shaded with triangles/rectangles/trapezoids, each labelled with its area, and the answer uses those numbers and says approximate for a curve.
+- [ ] Open Blender (or any app Vernier does not know) and ask what a tool does: the ask bar shows "researching on the web", the answer explains in its own words and ends with a short Sources line naming at least three sites.
+
 ## 8c. Look and feel
 
 - [ ] Try each theme (Settings › Theme): the ask bar is see-through acrylic with rounded corners and a soft shadow on Windows 11; with "Transparency effects" off it is opaque.
 - [ ] Ask something with a formula ("derive the kinetic energy"): fractions are stacked, exponents raised, roots drawn; Narrator reads formulas as words.
 - [ ] Ask about the screen: the edge light is a wave travelling round the screen, smooth (no bands), and keeps moving while the bar is busy. With Windows animations off it breathes in place.
+
+## 8d. Shipping
+
+- [ ] `scripts/publish.ps1`: the output folder holds exactly `Vernier.exe` and `Vernier.Native.dll`; copied to another folder (a path with spaces), the exe starts, shows the tray icon, and Diagnostics reports the native module in use.
 
 ## 9. Data
 

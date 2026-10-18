@@ -1,9 +1,11 @@
 <#
 .SYNOPSIS
-  Builds a self-contained Release folder of Vernier for 64-bit Windows and smoke-tests the published executable.
+  Builds Vernier for 64-bit Windows as one self-contained executable plus the C++ module, and smoke-tests it.
 .DESCRIPTION
-  Output: artifacts\publish\Vernier-win-x64\Vernier.exe (no .NET install needed on the target machine).
-  The build is NOT code signed and there is no installer or auto-update; copy the folder to use it.
+  Output: artifacts\publish\Vernier-win-x64\Vernier.exe and Vernier.Native.dll beside it, nothing else (no .NET install
+  needed on the target machine). The .NET runtime's own native parts are inside Vernier.exe and are unpacked by .NET to a
+  per-user cache on first start. Not compressed: compression would slow every start.
+  The build is NOT code signed and there is no installer or auto-update; copy the two files to use it.
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\publish.ps1
 #>
@@ -29,7 +31,8 @@ if (-not $SkipTests) {
 }
 
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
-dotnet publish (Join-Path $root 'src\Vernier.App') -c Release -r win-x64 --self-contained true -o $out --nologo
+dotnet publish (Join-Path $root 'src\Vernier.App') -c Release -r win-x64 --self-contained true -o $out --nologo `
+    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
 
 $exe = Join-Path $out 'Vernier.exe'
@@ -39,6 +42,8 @@ if (Test-Path (Join-Path $root 'src\Vernier.App\native\Vernier.Native.dll')) {
     if (-not (Test-Path $dll)) { throw 'The native module was built but is not in the published folder.' }
     Write-Host 'Native module is in the published folder.'
 } else { Write-Warning 'Published without the native module (managed fallbacks only).' }
+$extra = Get-ChildItem $out -Recurse -File | Where-Object { $_.Name -notin @('Vernier.exe', 'Vernier.Native.dll') }
+if ($extra) { throw "The published folder must hold only Vernier.exe and Vernier.Native.dll; also found: $($extra.Name -join ', ')" }
 
 if (-not $SkipSmoke) {
     # Starts the real published app against a throwaway data folder: it opens the main window,
