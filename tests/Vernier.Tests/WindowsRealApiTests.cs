@@ -236,11 +236,12 @@ public class WindowsRealApiTests(ITestOutputHelper output)
 
             // A mark really appears on screen at its physical coordinates.
             var at = new PxRect(monitor.BoundsPhysical.X + 300, monitor.BoundsPhysical.Y + 300, 120, 80);
-            store.Add(new Annotation { Kind = AnnotationKind.Highlight, Points = [new(at.X, at.Y), new(at.Right, at.Bottom)], Color = "#FF00FF", StrokeWidth = 6 });
-            surface.Redraw();
+            // (An underline: solid ink 3 px under the box. A highlight is a translucent swipe whose colour depends on what is behind it.)
+            store.Add(new Annotation { Kind = AnnotationKind.Underline, Points = [new(at.X, at.Y), new(at.Right, at.Bottom)], Color = "#FF00FF", StrokeWidth = 6 });
+            surface.Sync();
             await Task.Delay(400);
-            var edge = ScreenCaptureService.Grab(new PxRect(at.X - 2, at.Y + at.Height / 2, 5, 1));
-            Assert.Contains(Enumerable.Range(0, edge.PixelWidth), x => ScreenCaptureService.PixelAt(edge, x, 0) is { R: > 200, G: < 90, B: > 200 });
+            var column = ScreenCaptureService.Grab(new PxRect(at.X + at.Width / 2, at.Bottom - 2, 1, 12));
+            Assert.Contains(Enumerable.Range(0, column.PixelHeight), y => ScreenCaptureService.PixelAt(column, 0, y) is { R: > 200, G: < 90, B: > 200 });
         }
         finally { surface.Close(); }
     });

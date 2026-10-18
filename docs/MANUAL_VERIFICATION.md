@@ -99,6 +99,9 @@ Use a harmless target (Notepad, with nothing unsaved).
 - [ ] Draw two strokes, press Undo mark: only the last stroke is taken back. Clear marks takes back every stroke.
 - [ ] Ask the tutor to solve a worksheet problem: a dark card with the working appears beside the problem, not over it, formulas typeset, the answer boxed; marks on the quantities appear in one go. Move the ask bar over the free space and ask again: the card goes elsewhere.
 
+- [ ] A note card shows a small × in its top-right corner. Clicking it removes that card only, without taking focus from the window you were in; the tutor's other marks stay.
+- [ ] Tutor marks look hand-drawn: a loop round the target (not a box), a translucent swipe for a highlight, a brace, a bowed arrow; each draws on in about a third of a second.
+
 ## 8c. Look and feel
 
 - [ ] Try each theme (Settings › Theme): the ask bar is see-through acrylic with rounded corners and a soft shadow on Windows 11; with "Transparency effects" off it is opaque.
@@ -110,3 +113,4 @@ Use a harmless target (Notepad, with nothing unsaved).
 - [ ] Review a card, restart: the due count stays reduced.
 - [ ] Export, Erase everything, Import: concepts and cards return.
 - [ ] Delete a session: it no longer appears in search.
+- [ ] Library: Delete on a concept (after confirming) removes it with its formulas, examples, mistakes and cards; Delete on a formula, example or mistake removes only that row. Review: Delete card removes the card from the queue.

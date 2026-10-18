@@ -4,7 +4,25 @@ Date: 2026-10-11 · Machine: Windows 11 24H2, build 26100, x64, one display 2560
 
 This report separates what was **run against the real thing**, what was **simulated**, and what was **not verified**. A simulated test shows the logic is right; it is not evidence that a real service or OS path works.
 
-## Revision 7 status (version 0.4.0, 2026-10-18): read this first
+## Revision 8 status (version 0.4.0, 2026-10-18): read this first
+
+Run on Windows 11 build 26100, display on. The owner allowed the desktop tests to open windows for this run.
+
+| Command | Result |
+|---|---|
+| `scripts/publish.ps1` | **366 of 366 tests passed** in Release; self-contained publish 169.5 MB; smoke test of the published exe passed |
+| `Vernier.exe --screenshots` | Every page in all five themes regenerated; Library looked at in Night and Paper (Delete buttons) |
+
+| Claim | Evidence |
+|---|---|
+| Tutor marks are smooth curves, not boxes, and still enclose their target | `MarkShapesTests`: a loop contains all four corners of a squat, a wide and a tall target without exceeding 1.45× its size; swipe, underline, brace and arrow stay with their target; shapes are identical for a mark and differ between marks; a sample sheet of every kind over a white page and a dark video (`docs/screenshots/tutor-marks.png`, looked at). A real-screen test reads the ink colour back at the underline's physical position (this test used to sample the old highlight outline, which no longer exists; it was moved to the underline, not weakened) |
+| A note card can be dismissed on its own | `ToolOverlayTests`: with the overlay running, a card gets one dismiss window in its top-right corner, not counted as a window cards must avoid; invoking it removes that card only and closes the window |
+| The learner can delete learning records one at a time | `Deleting_one_record_takes_exactly_what_belongs_to_it`: deleting a concept takes its formulas, examples, mistakes and cards and leaves another concept's; deleting a formula, example, mistake or card takes only that row; an unknown id reports false. Library and Review buttons confirm first |
+| Shallow code removed | `AnnotationSurfaceWindow.Redraw` (a pass-through to `Sync`), the duplicated own-window scan in the overlay manager, and the per-table `DeleteSession`/`DeleteCard` (now `LearningStore.Delete`) |
+
+Not verified: the draw-on reveal and the hover state of the × were not watched on a real screen (only rendered without animation); clicking the × with a real mouse was not done (it was invoked through UI Automation).
+
+## Revision 7 status (version 0.4.0, 2026-10-18)
 
 Run on Windows 11 build 26100, display on, Claude Code CLI signed in. The desktop tests briefly open windows on the screen; the pen's end-to-end path (a real mouse drag) was **not** exercised because that would move the user's real pointer.
 

@@ -113,6 +113,8 @@ public sealed class AnnotationOverlayManager : IDisposable
     private readonly List<NativeGlow> _lights = [];
     // The pen's ink, one native layer per monitor (own thread, fades by itself); WPF marks that expire are the fallback.
     private readonly List<NativeInk> _inks = [];
+    // One small × per note card on screen: the only part of the overlay that takes a click (see NoteDismissWindow).
+    private readonly Dictionary<Guid, NoteDismissWindow> _dismiss = [];
     /// <summary>How long a finished stroke stays visible before it fades. The stroke is still sent with the next question.</summary>
     public static readonly TimeSpan InkHold = TimeSpan.FromMilliseconds(1400), InkFade = TimeSpan.FromMilliseconds(350);
 
@@ -192,6 +194,7 @@ public sealed class AnnotationOverlayManager : IDisposable
             }
         }
         ShowOnlyWhenNeeded();
+        SyncDismissButtons();
         ApplySignal();
         _timer.Start();
     }
@@ -321,25 +324,21 @@ public sealed class AnnotationOverlayManager : IDisposable
         MarksWentStale?.Invoke();
     }
 
-    /// <summary>The always-on-top windows of Vernier that float over the work (the ask bar, dialogs): places a note card must stay clear of.</summary>
+    /// <summary>
+    /// The always-on-top windows of Vernier that float over the work (the ask bar, dialogs): places a note card must stay
+    /// clear of, and windows that make the area under them look changed. The overlay's own layers are not among them.
+    /// </summary>
     public IReadOnlyList<PxRect> OwnWindowRects()
     {
-        var passive = _glass.Cast<Window>().Concat(_edges).Select(w => new WindowInteropHelper(w).Handle).Concat(_lights.Select(l => l.Hwnd)).Concat(_inks.Select(i => i.Hwnd)).ToHashSet();
+        var overlay = _glass.Cast<Window>().Concat(_edges).Concat(_dismiss.Values).Select(w => new WindowInteropHelper(w).Handle)
+            .Concat(_lights.Select(l => l.Hwnd)).Concat(_inks.Select(i => i.Hwnd)).ToHashSet();
         const long topmost = 0x8; // WS_EX_TOPMOST
-        return [.. AppServices.Policy.States.Where(s => !passive.Contains(s.Hwnd) && Win32.IsWindowVisible(s.Hwnd) && ((long)Win32.GetWindowLongPtr(s.Hwnd, Win32.GWL_EXSTYLE) & topmost) != 0)
+        return [.. AppServices.Policy.States.Where(s => !overlay.Contains(s.Hwnd) && Win32.IsWindowVisible(s.Hwnd) && ((long)Win32.GetWindowLongPtr(s.Hwnd, Win32.GWL_EXSTYLE) & topmost) != 0)
             .Select(s => Win32.WindowBounds(s.Hwnd)).Where(b => b is not null).Select(b => b!.Value)];
     }
 
-    private bool OwnWindowOver(PxRect area)
-    {
-        var passive = _glass.Cast<Window>().Concat(_edges).Select(w => new WindowInteropHelper(w).Handle).Concat(_lights.Select(l => l.Hwnd)).Concat(_inks.Select(i => i.Hwnd)).ToHashSet();
-        // Only the always-on-top ones (the ask bar, dialogs): they float over the work without being part of it.
-        // The workspace is an ordinary window; if it really covers the area, the marked thing is hidden and the marks should go.
-        const long topmost = 0x8; // WS_EX_TOPMOST
-        return AppServices.Policy.States.Any(s => !passive.Contains(s.Hwnd) && Win32.IsWindowVisible(s.Hwnd)
-            && ((long)Win32.GetWindowLongPtr(s.Hwnd, Win32.GWL_EXSTYLE) & topmost) != 0
-            && Win32.WindowBounds(s.Hwnd) is { } b && !b.Intersect(area).IsEmpty);
-    }
+    // The workspace is an ordinary window, not counted: if it really covers the area, the marked thing is hidden and the marks should go.
+    private bool OwnWindowOver(PxRect area) => OwnWindowRects().Any(b => !b.Intersect(area).IsEmpty);
 
     private void ApplySignal()
     {
@@ -373,6 +372,32 @@ public sealed class AnnotationOverlayManager : IDisposable
         _settledAt = DateTime.UtcNow + SettleTime;
         foreach (var g in _glass) g.Sync();
         ShowOnlyWhenNeeded();
+        SyncDismissButtons();
+    }
+
+    private void SyncDismissButtons()
+    {
+        var notes = _store.Visible && IsRunning
+            ? _store.Items.Where(a => a is { Kind: AnnotationKind.Note, Points.Count: >= 2 }).ToDictionary(a => a.Id)
+            : [];
+        foreach (var id in _dismiss.Keys.Where(id => !notes.ContainsKey(id)).ToList())
+        {
+            _dismiss[id].Close();
+            _dismiss.Remove(id);
+        }
+        var monitors = Win32.Monitors();
+        foreach (var (id, note) in notes)
+        {
+            if (!_dismiss.TryGetValue(id, out var button))
+            {
+                button = new NoteDismissWindow(id, _store.Remove);
+                AppServices.TrackWindow(button, "Note dismiss button");
+                button.Show();
+                _dismiss[id] = button;
+            }
+            var (a, b) = (note.Points[0], note.Points[1]);
+            button.Place(new PxRect(a.X, a.Y, b.X - a.X, b.Y - a.Y), monitors.FirstOrDefault(m => m.BoundsPhysical.Contains(a))?.DpiScale ?? 1.0);
+        }
     }
 
     // An empty glass is hidden, so a full-screen layered window is not composited over everything for nothing.
@@ -386,17 +411,18 @@ public sealed class AnnotationOverlayManager : IDisposable
         }
     }
 
-    // A glass shown again lands on top of the topmost band; the ask bar must stay above it, or the pen's hit plate would swallow its clicks.
+    // A glass shown again lands on top of the topmost band; the ask bar and the note buttons must stay above it, or the pen's hit plate would swallow their clicks.
     private static void RaiseInteractive()
     {
         foreach (Window w in Application.Current?.Windows ?? new WindowCollection())
-            if (w is Views.AskBar { IsVisible: true } bar)
-                Win32.SetWindowPos(new WindowInteropHelper(bar).Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0, Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+            if (w is Views.AskBar { IsVisible: true } || w is NoteDismissWindow)
+                Win32.SetWindowPos(new WindowInteropHelper(w).Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0, Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
     }
 
     private void CloseWindows()
     {
-        foreach (var w in _glass.Cast<Window>().Concat(_edges)) w.Close();
+        foreach (var w in _glass.Cast<Window>().Concat(_edges).Concat(_dismiss.Values)) w.Close();
+        _dismiss.Clear();
         foreach (var l in _lights)
         {
             AppServices.Policy.Unregister(l.Hwnd);

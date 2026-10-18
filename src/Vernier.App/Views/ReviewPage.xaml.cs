@@ -68,6 +68,13 @@ public partial class ReviewPage : UserControl, IRefreshable
         Reveal.Visibility = Visibility.Collapsed;
     }
 
+    private void OnDeleteCard(object sender, RoutedEventArgs e)
+    {
+        if (_card is null || !ConfirmDialog.Ask(Window.GetWindow(this), "Delete this card?", _card.Front, "Delete", danger: true)) return;
+        AppServices.Store.Delete(LearningRecord.Card, _card.Id);
+        Refresh();
+    }
+
     private void OnGrade(object sender, RoutedEventArgs e) => Grade(int.Parse((string)((Button)sender).Tag));
 
     private void Grade(int grade)

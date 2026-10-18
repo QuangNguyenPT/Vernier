@@ -31,6 +31,7 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="150"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Style="{StaticResource Body}" FontSize="14" Text="{Binding Name}"/>
@@ -42,6 +43,7 @@
                                 <TextBlock Style="{StaticResource Readout}" Text="{Binding Mastery.Level}" Margin="0,3,0,0"/>
                             </StackPanel>
                             <Button Grid.Column="2" Style="{StaticResource Quiet}" Content="Practise" Click="OnPractise" VerticalAlignment="Center"/>
+                            <Button Grid.Column="3" Style="{StaticResource Quiet}" Content="Delete" Click="OnDelete" VerticalAlignment="Center" AutomationProperties.Name="Delete concept"/>
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -59,6 +61,7 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="260"/>
                                         <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Margin="0,0,16,0">
                                         <TextBox Style="{StaticResource ReadingBox}" FontSize="18" Text="{Binding Expression, Mode=OneWay}"/>
@@ -68,6 +71,7 @@
                                         <TextBlock Style="{StaticResource Body}" Text="{Binding Meaning}"/>
                                         <TextBlock Style="{StaticResource Soft}" FontSize="12.5" Text="{Binding Derivation}" Margin="0,4,0,0"/>
                                     </StackPanel>
+                                    <Button Grid.Column="2" Style="{StaticResource Quiet}" Content="Delete" Click="OnDelete" VerticalAlignment="Top" AutomationProperties.Name="Delete formula"/>
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -78,11 +82,14 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1" Padding="0,10">
-                                <StackPanel>
-                                    <TextBlock Style="{StaticResource Readout}" Text="{Binding Concept}"/>
-                                    <TextBlock Style="{StaticResource Body}" Text="{Binding Problem}" Margin="0,2,0,0"/>
-                                    <TextBox Style="{StaticResource ReadingBox}" FontSize="14.5" Text="{Binding Solution, Mode=OneWay}" Margin="0,4,0,0"/>
-                                </StackPanel>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource Quiet}" Content="Delete" Click="OnDelete" VerticalAlignment="Top" AutomationProperties.Name="Delete worked example"/>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource Readout}" Text="{Binding Concept}"/>
+                                        <TextBlock Style="{StaticResource Body}" Text="{Binding Problem}" Margin="0,2,0,0"/>
+                                        <TextBox Style="{StaticResource ReadingBox}" FontSize="14.5" Text="{Binding Solution, Mode=OneWay}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </DockPanel>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -100,6 +107,7 @@
                                 <ColumnDefinition Width="92"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="State" Style="{StaticResource Readout}" Text="open" Foreground="{DynamicResource Err}" Margin="0,2,0,0"/>
                             <StackPanel Grid.Column="1">
@@ -107,6 +115,7 @@
                                 <TextBlock Style="{StaticResource Readout}" Text="{Binding Concept}"/>
                             </StackPanel>
                             <Button x:Name="Toggle" Grid.Column="2" Style="{StaticResource Quiet}" Content="Mark resolved" Click="OnToggleMistake" VerticalAlignment="Center"/>
+                            <Button Grid.Column="3" Style="{StaticResource Quiet}" Content="Delete" Click="OnDelete" VerticalAlignment="Center" AutomationProperties.Name="Delete mistake"/>
                         </Grid>
                         <DataTemplate.Triggers>
                             <DataTrigger Binding="{Binding Resolved}" Value="True">

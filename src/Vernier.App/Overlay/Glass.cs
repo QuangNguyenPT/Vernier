@@ -91,9 +91,6 @@ public sealed class AnnotationSurfaceWindow : Window
     /// <summary>Brings the glass in line with the store: adds new marks, drops removed ones, rebuilds changed ones.</summary>
     public void Sync() => _surface.Sync(_store.Items, _store.Visible);
 
-    /// <summary>Kept for callers that predate retained rendering; same as <see cref="Sync"/>.</summary>
-    public void Redraw() => Sync();
-
     private void SetClickThrough(bool through)
     {
         if (Handle == 0) return;
@@ -239,8 +236,9 @@ internal static class MarkPainter
 {
     private static readonly Typeface LabelFace = new(new FontFamily("Segoe UI Variable Text, Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
     public static readonly Brush HitPlate = Frozen(Color.FromArgb(1, 0, 0, 0));
-    private static readonly Brush Halo = Frozen(Color.FromArgb(140, 0, 0, 0));
-    private static readonly Brush PlateFill = Frozen(Color.FromRgb(12, 22, 32));
+    private static readonly Brush Halo = Frozen(Color.FromArgb(96, 0, 0, 0));
+    private static readonly Brush PlateFill = Frozen(Color.FromArgb(236, 12, 20, 27));
+    private static readonly Pen PlateEdge = FrozenPen(Color.FromArgb(46, 255, 255, 255), 1);
     private static readonly Dictionary<string, Color> Colours = [];
     private static readonly Dictionary<(string Colour, double Width, bool Dashed, bool Halo), Pen> Pens = [];
     private static readonly Dictionary<(string Colour, byte Alpha), Brush> Brushes = [];
@@ -263,10 +261,17 @@ internal static class MarkPainter
     private static Pen PenOf(string hex, double width, bool dashed, bool halo)
     {
         if (Pens.TryGetValue((hex, width, dashed, halo), out var pen)) return pen;
-        pen = new Pen(halo ? Halo : BrushOf(hex), halo ? width + 3 : width) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
+        pen = new Pen(halo ? Halo : BrushOf(hex), halo ? width + 2.5 : width) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
         if (dashed && !halo) pen.DashStyle = new DashStyle([4, 3], 0);
         pen.Freeze();
         return Pens[(hex, width, dashed, halo)] = pen;
+    }
+
+    private static Pen FrozenPen(Color c, double width)
+    {
+        var pen = new Pen(Frozen(c), width);
+        pen.Freeze();
+        return pen;
     }
 
     private static Brush Frozen(Color c)
@@ -276,28 +281,23 @@ internal static class MarkPainter
         return b;
     }
 
-    /// <summary>One polyline as one geometry, drawn twice (dark halo, then ink): no beading at the joints.</summary>
+    /// <summary>One smooth stroke as one geometry, drawn twice (dark halo, then ink): no beading at the joints.</summary>
     public static void Stroke(DrawingContext dc, IReadOnlyList<Point> points, string colour, double width)
     {
-        var g = new StreamGeometry();
-        using (var ctx = g.Open())
-        {
-            ctx.BeginFigure(points[0], false, false);
-            ctx.PolyLineTo(points.Skip(1).ToList(), true, true);
-        }
-        g.Freeze();
+        var g = MarkShapes.Smooth(points);
         dc.DrawGeometry(null, PenOf(colour, width, false, true), g);
         dc.DrawGeometry(null, PenOf(colour, width, false, false), g);
     }
 
-    /// <param name="reveal">A new tutor mark fades in and settles from 94 % scale over about 200 ms, so it is noticed;
-    /// a pointer ring also pulses three times. With Windows animations off it only fades. Once settled it is static.</param>
+    /// <param name="reveal">A new tutor mark is drawn on along its length (about a third of a second, like a pen moving) as it
+    /// fades in; a pointer ring also pulses three times. With Windows animations off it only fades. Once drawn it is static.</param>
     public static DrawingVisual Build(Annotation a, Func<PxPoint, Point> local, Size bounds, double pixelsPerDip, bool reveal)
     {
         var visual = new DrawingVisual();
         var pts = a.Points.Select(local).ToList();
         if (pts.Count == 0) return visual;
         var uncertain = a is { Source: "tutor", Confidence: < 0.5 };
+        var seed = a.Id.GetHashCode();
         var halo = PenOf(a.Color, a.StrokeWidth, uncertain, true);
         var pen = PenOf(a.Color, a.StrokeWidth, uncertain, false);
         var motion = reveal && SystemParameters.ClientAreaAnimation;
@@ -308,73 +308,51 @@ internal static class MarkPainter
 
         using var dc = visual.RenderOpen();
         if (reveal) dc.PushOpacity(0, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)) { EasingFunction = ease }.CreateClock());
-        if (motion)
+
+        // A dashed (uncertain) mark keeps its dashes, so it is not drawn on.
+        void Draw(Geometry g, Pen ink, Pen? under)
         {
-            var grow = new ScaleTransform(0.94, 0.94, centre.X, centre.Y);
-            var settle = new DoubleAnimation(0.94, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease };
-            grow.BeginAnimation(ScaleTransform.ScaleXProperty, settle);
-            grow.BeginAnimation(ScaleTransform.ScaleYProperty, settle);
-            dc.PushTransform(grow);
+            if (motion && !uncertain)
+            {
+                var length = MarkShapes.Length(g);
+                var duration = TimeSpan.FromMilliseconds(Math.Clamp(220 + length * 0.5, 260, 560));
+                ink = DrawOn(ink, length, duration, ease);
+                under = under is null ? null : DrawOn(under, length, duration, ease);
+            }
+            if (under is not null) dc.DrawGeometry(null, under, g);
+            dc.DrawGeometry(null, ink, g);
         }
-        void Both(Geometry g, Brush? fill = null) { dc.DrawGeometry(null, halo, g); dc.DrawGeometry(fill, pen, g); }
+
         switch (a.Kind)
         {
             case AnnotationKind.Arrow when pts.Count >= 2:
-                var dir = pts[1] - pts[0];
-                var arrow = new StreamGeometry();
-                using (var g = arrow.Open())
-                {
-                    g.BeginFigure(pts[0], false, false);
-                    g.LineTo(pts[1], true, true);
-                    if (dir.Length > 1)
-                    {
-                        dir.Normalize();
-                        var normal = new Vector(-dir.Y, dir.X);
-                        g.BeginFigure(pts[1] - dir * 14 + normal * 6, true, true);
-                        g.LineTo(pts[1], true, true);
-                        g.LineTo(pts[1] - dir * 14 - normal * 6, true, true);
-                    }
-                }
-                arrow.Freeze();
-                Both(arrow, BrushOf(a.Color));
+                Draw(MarkShapes.Arrow(pts[0], pts[1], seed), pen, halo);
                 labelAt = pts[0];
                 break;
             case AnnotationKind.Highlight when pts.Count >= 2:
-                Both(new RectangleGeometry(box), BrushOf(a.Color, 40));
+                // A highlighter swipe: translucent, round-ended, no outline and no halo (a dark rim would dirty what it lights up).
+                var swipe = MarkShapes.Swipe(box, seed, out var thickness);
+                Draw(swipe, MarkerOf(a.Color, thickness), null);
                 labelAt = box.TopLeft;
                 break;
             case AnnotationKind.Underline when pts.Count >= 2:
-                Both(new LineGeometry(new Point(box.Left, box.Bottom + 3), new Point(box.Right, box.Bottom + 3)));
+                Draw(MarkShapes.Underline(box, seed), pen, halo);
                 labelAt = box.TopLeft;
                 break;
             case AnnotationKind.Circle when pts.Count >= 2:
-                // The box is the thing's bounding box. An ellipse inside it cuts across the corners of what it should
-                // enclose, so use the ellipse through the corners (radii x sqrt 2); very wide or tall targets get a rounded box.
-                var cr = box;
-                cr.Inflate(3, 3);
-                var aspect = Math.Max(cr.Width, cr.Height) / Math.Max(1, Math.Min(cr.Width, cr.Height));
-                var r = Math.Min(cr.Width, cr.Height) / 2;
-                Both(aspect > 3
-                    ? new RectangleGeometry(cr, r, r)
-                    : new EllipseGeometry(centre, cr.Width / 2 * Math.Sqrt(2), cr.Height / 2 * Math.Sqrt(2)));
-                labelAt = aspect > 3 ? cr.TopLeft : new Point(cr.X, cr.Y - cr.Height * 0.21);
+                var loop = MarkShapes.Loop(box, seed);
+                Draw(loop, pen, halo);
+                labelAt = new Point(loop.Bounds.X + loop.Bounds.Width * 0.12, loop.Bounds.Y + 2);
                 break;
             case AnnotationKind.Bracket when pts.Count >= 2:
-                var bracket = new StreamGeometry();
-                using (var g = bracket.Open())
-                {
-                    g.BeginFigure(new Point(box.Left + 8, box.Top), false, false);
-                    g.PolyLineTo([box.TopLeft, box.BottomLeft, new Point(box.Left + 8, box.Bottom)], true, true);
-                }
-                bracket.Freeze();
-                Both(bracket);
+                Draw(MarkShapes.Brace(box), pen, halo);
                 labelAt = box.TopLeft;
                 break;
             case AnnotationKind.Point:
                 // A ring round the target plus a dot: "this one". The ring pulses briefly when it appears.
                 var at = pts.Count >= 2 ? centre : pts[0];
                 var radius = Math.Max(14, Math.Min(box.Width, box.Height) / 2 + 8);
-                Both(new EllipseGeometry(at, radius, radius));
+                Draw(new EllipseGeometry(at, radius, radius), pen, halo);
                 dc.DrawEllipse(BrushOf(a.Color), null, at, 3.5, 3.5);
                 labelAt = new Point(at.X + radius * 0.7, at.Y - radius * 0.7);
                 if (motion)
@@ -407,7 +385,9 @@ internal static class MarkPainter
                     wipeEdge.BeginAnimation(GradientStop.OffsetProperty, new DoubleAnimation(0.0, 1.15, duration) { EasingFunction = ease });
                     dc.PushOpacityMask(mask);
                 }
-                dc.DrawImage(card.Image, new Rect(pts[0], card.SizeDip));
+                // The bitmap carries the card's soft shadow round it, so it is drawn that much outside the card's rectangle.
+                var m = NoteRenderer.ShadowMargin;
+                dc.DrawImage(card.Image, new Rect(pts[0].X - m, pts[0].Y - m, card.SizeDip.Width + 2 * m, card.SizeDip.Height + 2 * m));
                 if (reveal) dc.Pop();
                 break;
             }
@@ -419,12 +399,32 @@ internal static class MarkPainter
         if (a.Label is { Length: > 0 } label && labelAt is { } spot)
         {
             var text = new FormattedText(label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, LabelFace, 12.5, System.Windows.Media.Brushes.White, pixelsPerDip) { MaxTextWidth = 260 };
-            // Kept on the glass even when the mark sits against a screen edge.
-            double w = text.Width + 14, h = text.Height + 6;
+            // A rounded tag with a dot of the mark's colour; kept on the glass even when the mark sits against a screen edge.
+            double w = text.Width + 26, h = text.Height + 8;
             var plate = new Rect(Math.Clamp(spot.X, 0, Math.Max(0, bounds.Width - w)), Math.Clamp(spot.Y - h - 4, 0, Math.Max(0, bounds.Height - h)), w, h);
-            dc.DrawRectangle(PlateFill, PenOf(a.Color, 1.5, false, false), plate);
-            dc.DrawText(text, new Point(plate.X + 7, plate.Y + 3));
+            var corner = Math.Min(h / 2, 10);
+            dc.DrawRoundedRectangle(PlateFill, PlateEdge, plate, corner, corner);
+            dc.DrawEllipse(BrushOf(a.Color), null, new Point(plate.X + 11, plate.Y + h / 2), 3.2, 3.2);
+            dc.DrawText(text, new Point(plate.X + 19, plate.Y + 4));
         }
         return visual;
+    }
+
+    // An unfrozen copy of the pen whose dash covers the whole stroke and slides into place: the stroke grows from its start.
+    private static Pen DrawOn(Pen basis, double length, TimeSpan duration, IEasingFunction ease)
+    {
+        var pen = basis.Clone();
+        var dash = length / pen.Thickness + 1;
+        pen.DashCap = PenLineCap.Round;
+        pen.DashStyle = new DashStyle([dash, dash], dash);
+        pen.DashStyle.BeginAnimation(DashStyle.OffsetProperty, new DoubleAnimation(dash, 0, duration) { EasingFunction = ease });
+        return pen;
+    }
+
+    private static Pen MarkerOf(string hex, double thickness)
+    {
+        var pen = new Pen(BrushOf(hex, 72), thickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
+        pen.Freeze();
+        return pen;
     }
 }

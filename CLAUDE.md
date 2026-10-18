@@ -28,6 +28,8 @@ Always pass `--data <temp dir>` when launching for tests or screenshots so the r
 - The app is tray-resident. Closing a window hides it; only tray › Quit (`AppServices.Quitting`) exits.
 - The learner has two tools: Ask and Pen. Arrow/box/circle/bracket/label and note cards are produced by the tutor only. Do not add user drawing tools. The learner's ink is transient: drawn by the native layer (`ink.cpp`), faded after 1.4 s, held only as points for the next question and removed when it is sent; it must not become a stored mark.
 - The tutor draws only through tools (`overlay_marks` for two or more marks, `overlay_write` for a note card on free space), never by writing drawing code or an annotations list. The operator instructions are `Core/Agents/OperatorGuide.md`; `.claude/skills/vernier-operator/SKILL.md` must stay identical to it (a test checks).
+- Tutor marks are smooth hand-drawn curves (`Overlay/MarkShapes`), never hard boxes. A note card is dismissed by its own × (`NoteDismissWindow`); the glass stays click-through everywhere else.
+- Learning records are deleted one at a time through `LearningStore.Delete(LearningRecord, id)` (the schema cascades); do not add per-table delete methods.
 - Colour rule: yellow (`You`, `AnnotationColors.Learner`) is the learner, blue (`Accent`, `AnnotationColors.Focus`) is the tutor.
 - The capture light (edge strips) must be on whenever `TutorSession.IsLooking` is true.
 - Nothing is sent to a model until the learner presses Enter or Ask. A finished pen mark waits; do not bring back auto-send. (Exception: a local context model, if the learner picks one, may summarise an episode in the background; remote models never run in the background.)

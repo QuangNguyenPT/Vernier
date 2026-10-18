@@ -13,6 +13,9 @@ public sealed record Card(long Id, long? ConceptId, string Concept, string Front
 public sealed record Misconception(long Id, long ConceptId, string Concept, string Description, DateTimeOffset At, bool Resolved);
 public sealed record Formula(long Id, string Concept, string Expression, string Meaning, string Derivation);
 public sealed record WorkedExample(long Id, string Concept, string Problem, string Solution);
+
+/// <summary>The kinds of learning record the learner can delete one at a time (<see cref="LearningStore.Delete"/>).</summary>
+public enum LearningRecord { Session, Concept, Card, Formula, Example, Misconception }
 public sealed record StudyItem(string Kind, string Title, string Reason, double Priority, long? CardId, long? ConceptId);
 
 /// <summary>
@@ -289,9 +292,24 @@ public sealed class LearningStore : IDisposable
             ("$q", string.Join(" ", terms)));
     }
 
-    public void DeleteSession(long id)
+    /// <summary>
+    /// Removes one record the learner chose to delete. What goes with it is the schema's cascade: a session takes its
+    /// messages (and their search entries); a concept takes its evidence, mistakes, cards, formulas and examples; a card
+    /// takes its review history. False when there was no such record.
+    /// </summary>
+    public bool Delete(LearningRecord kind, long id)
     {
-        lock (_gate) Exec("DELETE FROM sessions WHERE id = $i", null, ("$i", id));
+        var table = kind switch
+        {
+            LearningRecord.Session => "sessions",
+            LearningRecord.Concept => "concepts",
+            LearningRecord.Card => "cards",
+            LearningRecord.Formula => "formulas",
+            LearningRecord.Example => "examples",
+            LearningRecord.Misconception => "misconceptions",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+        lock (_gate) return Exec($"DELETE FROM {table} WHERE id = $i", null, ("$i", id)) > 0;
     }
 
     public int PurgeSessionsOlderThan(int days, DateTimeOffset now)
@@ -354,11 +372,6 @@ public sealed class LearningStore : IDisposable
         }
         if (card.ConceptId is { } conceptId) AddEvidence(conceptId, EvidenceKinds.Recall, grade >= 3, now);
         return next;
-    }
-
-    public void DeleteCard(long id)
-    {
-        lock (_gate) Exec("DELETE FROM cards WHERE id = $i", null, ("$i", id));
     }
 
     // ---------- formulas / examples ----------

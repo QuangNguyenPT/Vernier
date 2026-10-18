@@ -624,13 +624,47 @@ public class LearningStoreTests
     }
 
     [Fact]
+    public void Deleting_one_record_takes_exactly_what_belongs_to_it()
+    {
+        using var dir = new TempDir();
+        using var store = new LearningStore(Path.Combine(dir.Path, "l.db"));
+        var keep = store.EnsureConcept("Physics", "Momentum");
+        var drop = store.EnsureConcept("Physics", "Friction");
+        foreach (var c in new[] { keep, drop })
+        {
+            store.AddFormula(c, $"F{c}", null, null);
+            store.AddExample(c, $"problem {c}", "solution");
+            store.AddMisconception(c, $"wrong idea {c}");
+            store.AddCard(c, $"front {c}", "back");
+        }
+
+        Assert.True(store.Delete(LearningRecord.Concept, drop));
+        Assert.Equal(["Momentum"], store.ConceptStates().Select(s => s.Name));
+        Assert.All(store.Formulas(), f => Assert.Equal("Momentum", f.Concept));
+        Assert.Single(store.Examples());
+        Assert.Single(store.Misconceptions());
+        Assert.Single(store.Cards());
+
+        Assert.True(store.Delete(LearningRecord.Formula, store.Formulas()[0].Id));
+        Assert.True(store.Delete(LearningRecord.Example, store.Examples()[0].Id));
+        Assert.True(store.Delete(LearningRecord.Misconception, store.Misconceptions()[0].Id));
+        Assert.True(store.Delete(LearningRecord.Card, store.Cards()[0].Id));
+        Assert.Empty(store.Formulas());
+        Assert.Empty(store.Examples());
+        Assert.Empty(store.Misconceptions());
+        Assert.Empty(store.Cards());
+        Assert.Single(store.ConceptStates()); // the concept itself stays
+        Assert.False(store.Delete(LearningRecord.Card, 999_999));
+    }
+
+    [Fact]
     public void Sessions_can_be_deleted_purged_by_age_and_everything_can_be_erased()
     {
         using var dir = new TempDir();
         using var store = new LearningStore(Path.Combine(dir.Path, "l.db"));
         var s = store.StartSession("Old", "Ask");
         store.AddMessage(s, "user", "uniquewordalpha");
-        store.DeleteSession(s);
+        store.Delete(LearningRecord.Session, s);
         Assert.Empty(store.Sessions());
         Assert.Empty(store.Search("uniquewordalpha")); // the search index forgets it too
 

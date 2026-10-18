@@ -55,7 +55,7 @@ Five presets, all cool, all with the same roles. The learner's yellow never chan
 
 Night is the default because the bar floats over other people's content and a dark slate bar disturbs a video or a white page least.
 
-On-screen ink (fixed, not themed): tutor `#2F9BE6`, learner `#FFD400`, error `#C92A2A`, correct `#2B8A3E`, note `#1864AB`. Every mark is drawn over a 3 px dark halo so it reads on light and dark content alike. Capture light `#6CC4FF`.
+On-screen ink (fixed, not themed): tutor `#2F9BE6`, learner `#FFD400`, error `#C92A2A`, correct `#2B8A3E`, note `#1864AB`. Every stroked mark is drawn over a soft dark halo (2.5 px wider, 38 % black) so it reads on light and dark content alike; the highlighter swipe has none. Capture light `#6CC4FF`.
 
 ## Typography
 
@@ -109,4 +109,22 @@ Ask: Ctrl+Alt+Space (falls back to Ctrl+Alt+A) · Pen: Ctrl+Alt+D (falls back to
 - **Icons, not words, for the two tools in the bar.** Pen and paperclip come from Windows' own icon font (`Segoe Fluent Icons`, falling back to `Segoe MDL2 Assets`): pen `E70F`, attach `E723`, 17 px, inheriting the control's foreground. Each has a tooltip and an accessible name. No other icon set is used.
 - **Attachments are chips above the input**: file-type glyph in `You` yellow (they are the learner's), name in the mono readout style, a `×` to remove. They stay until removed.
 - **The answer area shows a refusal as a note, not as an answer.** When a question was not sent, the reading box is hidden and the reason is the only thing shown.
-- **Circles enclose.** A tutor circle is the ellipse through the corners of the target's box (radii x sqrt 2), so it goes round the thing instead of across it. Targets more than three times wider than tall get a rounded box. Labels are clamped to the glass.
+- **Circles enclose.** A tutor circle goes round every corner of the target's box instead of across it. Labels are clamped to the glass.
+
+## Revision 4: shape language (no boxes)
+
+The tutor writes on the screen the way a teacher writes on paper, so no mark is a hard rectangle (`Overlay/MarkShapes.cs`, sample `docs/screenshots/tutor-marks.png`):
+
+| Mark | Shape |
+|---|---|
+| Circle | A hand-drawn loop: starts upper left and overshoots its start a little; a superellipse through the box corners (an ellipse for squat targets, a flatter oval, never squarer than exponent 2.8, for a line of text), with a slight wobble |
+| Highlight | A highlighter swipe: translucent (28 %), round ends, no outline, no halo |
+| Underline | A quick pen stroke that sags a touch and lifts at its end |
+| Bracket | A curly brace down the left side |
+| Arrow | A gently bowed shaft with an open head aligned to where the shaft arrives |
+| Label | A rounded tag (corner = half its height, at most 10 px) with a dot of the mark's colour and a faint light rim |
+| Note card | 12 px radius, lit from above (paper a shade lighter at the top, rim brighter at the top), on a soft shadow (22 px blur, 5 px down); the boxed result has a 9 px radius |
+
+Every shape is smooth (Catmull-Rom through its samples, so there are no corners where samples join) and deterministic for its mark, so a mark rebuilt on another monitor is the same mark. A new mark is **drawn on** along its length in 260–560 ms (eased out) as it fades in, like a pen moving; a dashed (uncertain) mark and everything with Windows animations off only fades.
+
+**Dismissing a note card.** Each card has a small round × in its top-right corner (24 px, dark in every theme, blue rim on hover). It is the only part of the overlay that takes a click; everything else stays click-through. Ask bar › Clear marks still removes every mark at once.

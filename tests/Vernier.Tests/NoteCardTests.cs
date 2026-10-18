@@ -26,13 +26,15 @@ public class NoteCardTests(ITestOutputHelper output)
         var card = NoteRenderer.Render(Solution(), 440, 1.25);
         Assert.Equal(440, card.SizeDip.Width);
         Assert.InRange(card.SizeDip.Height, 200, 700);
-        Assert.Equal((int)Math.Ceiling(440 * 1.25), card.Image.PixelWidth);
+        Assert.Equal((int)Math.Ceiling((440 + 2 * NoteRenderer.ShadowMargin) * 1.25), card.Image.PixelWidth); // the shadow is outside the card
 
         var pixels = new byte[card.Image.PixelWidth * card.Image.PixelHeight * 4];
         card.Image.CopyPixels(pixels, card.Image.PixelWidth * 4, 0);
         // Premultiplied BGRA. The template body is dark and nearly opaque; the writing is bright.
         int At(int x, int y) => (y * card.Image.PixelWidth + x) * 4;
-        var body = At(card.Image.PixelWidth - 12, card.Image.PixelHeight / 2);
+        var inset = (int)Math.Ceiling(NoteRenderer.ShadowMargin * 1.25);
+        var body = At(card.Image.PixelWidth - inset - 12, card.Image.PixelHeight / 2);
+        Assert.True(pixels[At(1, 1) + 3] < 40, "the corner outside the card is shadow at most, not card");
         Assert.InRange(pixels[body + 3], 220, 255);
         Assert.True(pixels[body] < 60 && pixels[body + 1] < 60 && pixels[body + 2] < 60, "the card body must be dark");
         var bright = 0;

@@ -55,7 +55,10 @@
                     </StackPanel>
 
                     <DockPanel x:Name="CardView" Visibility="Collapsed">
-                        <TextBlock DockPanel.Dock="Top" x:Name="CardMeta" Style="{StaticResource Readout}" Margin="0,0,0,10"/>
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource Quiet}" Content="Delete card" Click="OnDeleteCard" AutomationProperties.Name="Delete this card" ToolTip="Remove this card and its review history"/>
+                            <TextBlock x:Name="CardMeta" Style="{StaticResource Readout}" VerticalAlignment="Center"/>
+                        </DockPanel>
                         <StackPanel DockPanel.Dock="Bottom" x:Name="Grades" Margin="0,16,0,0">
                             <TextBlock Style="{StaticResource Readout}" Text="how well did you recall it? · keys 1–4" Margin="0,0,0,6"/>
                             <UniformGrid Rows="1">

@@ -72,10 +72,10 @@ public class OverlayBenchmarks(ITestOutputHelper output)
                     var probe = new Annotation { Kind = AnnotationKind.Highlight, Points = [origin, new(origin.X + 300, origin.Y + 120)], Color = "#FF00FF", StrokeWidth = 6, Source = source };
                     var clock = Stopwatch.StartNew();
                     store.Add(probe);
-                    glass.Redraw(); // what AnnotationOverlayManager does on every store change
+                    glass.Sync(); // what AnnotationOverlayManager does on every store change
                     marks.Add(await UntilSeen(clock, new PxPoint(origin.X + 150, origin.Y), (r, g, bl) => r > 200 && g < 80 && bl > 200));
                     store.Remove(probe.Id);
-                    glass.Redraw();
+                    glass.Sync();
                     await Task.Delay(150);
                 }
                 return $"mark → visible, {label}: " + Stats(marks);
@@ -91,7 +91,7 @@ public class OverlayBenchmarks(ITestOutputHelper output)
                     Points = [new(b.X + 450 + m * 20, b.Y + 30), new(b.X + 500 + m * 20, b.Y + 70)] });
             output.WriteLine(await MarkRun("30k ink points already on the glass"));
             store.Clear();
-            glass.Redraw();
+            glass.Sync();
 
             // 3. What the glass costs: CPU while idle with marks on screen.
             store.Add(new Annotation { Kind = AnnotationKind.Circle, Points = [origin, new(origin.X + 200, origin.Y + 100)], Color = "#2F9BE6", Label = "F = ma", Source = "tutor" });

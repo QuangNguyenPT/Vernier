@@ -101,6 +101,48 @@ public class ToolOverlayTests(ITestOutputHelper output)
     });
 
     [Fact]
+    public void A_note_card_has_its_own_dismiss_button_in_its_corner_and_it_removes_only_that_card() => WindowsRealApiTests.OnAppSta(() =>
+    {
+        using var dir = new TempDir();
+        AppServices.Initialize(dir.Path);
+        try
+        {
+            AppServices.Overlays.Start();
+            var area = Vernier.App.Platform.Win32.Monitors().First(m => m.IsPrimary).BoundsPhysical;
+            var (x, y) = (area.X + 200, area.Y + 200);
+            var card = new Annotation
+            {
+                Kind = AnnotationKind.Note, Points = [new(x, y), new(x + 400, y + 240)], Source = "tutor", Lifetime = TimeSpan.FromMinutes(1),
+                Note = new NoteContent("Check", [new NoteLine(NoteLineKind.Step, "a line")], true),
+            };
+            var circle = new Annotation { Kind = AnnotationKind.Circle, Points = [new(x - 150, y), new(x - 50, y + 40)], Source = "tutor", Lifetime = TimeSpan.FromMinutes(1) };
+            AppServices.Annotations.Add(circle);
+            AppServices.Annotations.Add(card);
+
+            var button = Assert.Single(Application.Current.Windows.OfType<NoteDismissWindow>());
+            Assert.Equal(card.Id, button.NoteId);
+            var at = Vernier.App.Platform.Win32.WindowBounds(new System.Windows.Interop.WindowInteropHelper(button).Handle)!.Value;
+            Assert.True(at.Right <= x + 400 && at.Right > x + 400 - 40 && at.Y >= y && at.Y < y + 40, $"the button at {at} is not in the card's top-right corner");
+            Assert.DoesNotContain(at, AppServices.Overlays.OwnWindowRects()); // part of the overlay, not a window a card must avoid
+
+            var peer = new System.Windows.Automation.Peers.ButtonAutomationPeer((System.Windows.Controls.Button)button.Content);
+            ((System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!).Invoke();
+            DispatcherPump();
+            Assert.Equal(circle.Id, Assert.Single(AppServices.Annotations.Items).Id); // the other mark stays
+            Assert.Empty(Application.Current.Windows.OfType<NoteDismissWindow>());
+        }
+        finally { AppServices.Shutdown(); }
+        return Task.CompletedTask;
+    });
+
+    private static void DispatcherPump()
+    {
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => frame.Continue = false);
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+    }
+
+    [Fact]
     public void The_guide_names_every_tool_the_tutor_is_offered_and_the_skill_is_the_same_text()
     {
         var guide = OperatorGuide.Text;

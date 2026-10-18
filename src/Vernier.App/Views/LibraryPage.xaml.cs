@@ -59,6 +59,22 @@ public partial class LibraryPage : UserControl, IRefreshable
         Refresh();
     }
 
+    // One Delete button per row on every tab; what it removes is decided by the row it sits in.
+    private void OnDelete(object sender, RoutedEventArgs e)
+    {
+        (LearningRecord Kind, long Id, string Question, string Detail)? target = ((FrameworkElement)sender).DataContext switch
+        {
+            ConceptState c => (LearningRecord.Concept, c.Id, $"Delete \"{c.Name}\"?", "Its progress, mistakes, review cards, formulas and examples are removed too."),
+            Formula f => (LearningRecord.Formula, f.Id, "Delete this formula?", f.Expression),
+            WorkedExample x => (LearningRecord.Example, x.Id, "Delete this worked example?", x.Problem),
+            Misconception m => (LearningRecord.Misconception, m.Id, "Delete this mistake from the journal?", m.Description),
+            _ => null,
+        };
+        if (target is not { } t || !ConfirmDialog.Ask(Window.GetWindow(this), t.Question, t.Detail, "Delete", danger: true)) return;
+        AppServices.Store.Delete(t.Kind, t.Id);
+        Refresh();
+    }
+
     // ---------- sessions ----------
 
     private void OnSearch(object sender, TextChangedEventArgs e) => LoadSessions();
@@ -91,7 +107,7 @@ public partial class LibraryPage : UserControl, IRefreshable
     {
         if (Sessions.SelectedItem is not SessionRow row) return;
         if (!ConfirmDialog.Ask(Window.GetWindow(this), "Delete this session?", "The conversation and its search entries are removed from this computer. Concepts, cards and mistakes learned from it are kept.", "Delete", danger: true)) return;
-        AppServices.Store.DeleteSession(row.Id);
+        AppServices.Store.Delete(LearningRecord.Session, row.Id);
         LoadSessions();
     }
 

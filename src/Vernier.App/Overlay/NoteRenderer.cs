@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using Vernier.Core.Agents;
 using Vernier.Core.Annotations;
@@ -15,7 +16,7 @@ namespace Vernier.App;
 /// </summary>
 public static class NoteRenderer
 {
-    private static readonly Color Paper = Color.FromArgb(0xF0, 0x0C, 0x14, 0x1B), Edge = Color.FromRgb(0x45, 0x59, 0x6A);
+    private static readonly Color Paper = Color.FromArgb(0xF2, 0x0B, 0x12, 0x18), PaperTop = Color.FromArgb(0xF2, 0x13, 0x1E, 0x27), Edge = Color.FromRgb(0x45, 0x59, 0x6A);
     private static readonly Color Ink = Color.FromRgb(0xE4, 0xEC, 0xF2), Soft = Color.FromRgb(0xB2, 0xC0, 0xCB), Blue = Color.FromRgb(0x6C, 0xC4, 0xFF),
         Green = Color.FromRgb(0x6F, 0xD9, 0x8A), Red = Color.FromRgb(0xFF, 0x8A, 0x8A);
 
@@ -23,7 +24,12 @@ public static class NoteRenderer
     private static readonly FontFamily Clean = new("Sitka Text, Cambria, Georgia");
     private static readonly FontFamily Heading = new("Sitka Subheading, Sitka Heading, Cambria, Georgia");
 
+    /// <param name="Image">The card with its soft shadow round it: <see cref="ShadowMargin"/> wider than the card on every side.</param>
+    /// <param name="SizeDip">The card itself, without the shadow: what is placed on free space.</param>
     public sealed record Card(BitmapSource Image, Size SizeDip);
+
+    /// <summary>How far the card's shadow reaches past its edge (DIPs).</summary>
+    public const double ShadowMargin = 14;
 
     // The card rendered for the tool (to learn its size and find room) is reused when the glass draws it.
     private static readonly Dictionary<Guid, (Card Card, double Scale)> Cache = [];
@@ -61,16 +67,32 @@ public static class NoteRenderer
         var grid = new Grid();
         grid.Children.Add(column);
         grid.Children.Add(rule);
-        var card = new Border { Child = grid, Background = Brush(Paper), BorderBrush = Brush(Edge), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Width = widthDip, UseLayoutRounding = true };
-        card.Measure(new Size(widthDip, double.PositiveInfinity));
-        card.Arrange(new Rect(card.DesiredSize));
-        card.UpdateLayout();
+        // Depth from light above: the paper is a shade lighter at the top, its rim is lit along the top and fades down the
+        // sides, and it sits on a soft shadow, so it reads as a card lying over the page rather than a box cut out of it.
+        var paper = new LinearGradientBrush(PaperTop, Paper, 90);
+        paper.Freeze();
+        var rim = new LinearGradientBrush(Edge, Color.FromArgb(0x40, Edge.R, Edge.G, Edge.B), 90);
+        rim.Freeze();
+        var card = new Border
+        {
+            Child = grid, Background = paper, BorderBrush = rim, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Width = widthDip, UseLayoutRounding = true,
+        };
+        // The shadow is cast by a plain shape behind the card, not by the card: an effect on the card would rasterise its writing through the effect pass and soften it.
+        var shadow = new Border
+        {
+            Background = Brushes.Black, CornerRadius = new CornerRadius(12),
+            Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 5, Direction = 270, Opacity = 0.55, Color = Colors.Black, RenderingBias = RenderingBias.Quality },
+        };
+        var host = new Grid { Margin = new Thickness(ShadowMargin), Children = { shadow, card } };
+        host.Measure(new Size(widthDip + 2 * ShadowMargin, double.PositiveInfinity));
+        host.Arrange(new Rect(host.DesiredSize));
+        host.UpdateLayout();
 
-        var size = card.DesiredSize;
-        var bitmap = new RenderTargetBitmap(Math.Max(1, (int)Math.Ceiling(size.Width * dpiScale)), Math.Max(1, (int)Math.Ceiling(size.Height * dpiScale)), 96 * dpiScale, 96 * dpiScale, PixelFormats.Pbgra32);
-        bitmap.Render(card);
+        var outer = host.DesiredSize; // the margin is included: the card plus room for its shadow
+        var bitmap = new RenderTargetBitmap(Math.Max(1, (int)Math.Ceiling(outer.Width * dpiScale)), Math.Max(1, (int)Math.Ceiling(outer.Height * dpiScale)), 96 * dpiScale, 96 * dpiScale, PixelFormats.Pbgra32);
+        bitmap.Render(host);
         bitmap.Freeze();
-        return new Card(bitmap, size);
+        return new Card(bitmap, card.RenderSize);
     }
 
     private static UIElement Line(NoteLine line, bool handwriting)
@@ -92,7 +114,7 @@ public static class NoteRenderer
             formula.Margin = new Thickness(line.Kind == NoteLineKind.Result ? 8 : 4, line.Text.Length > 0 ? 3 : 0, 0, 0);
             formula.HorizontalAlignment = HorizontalAlignment.Left;
             if (line.Kind == NoteLineKind.Result)
-                return new Border { Child = new StackPanel { Children = { panel, formula }, Margin = new Thickness(8, 5, 10, 6) }, BorderBrush = Brush(Blue), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 4, 0, 9), HorizontalAlignment = HorizontalAlignment.Left };
+                return new Border { Child = new StackPanel { Children = { panel, formula }, Margin = new Thickness(8, 5, 10, 6) }, BorderBrush = Brush(Blue), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(9), Margin = new Thickness(0, 4, 0, 9), HorizontalAlignment = HorizontalAlignment.Left };
             panel.Children.Add(formula);
         }
         else if (line.Math is { Length: > 0 } source)
