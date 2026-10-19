@@ -129,11 +129,18 @@ public sealed class AnnotationOverlayManager : IDisposable
     private readonly Dictionary<Guid, MarkAnchor> _anchors = [];
     // The window each tutor mark was drawn for. A card on free space beside the window belongs to it as much as a circle inside it.
     private readonly Dictionary<Guid, nint> _owner = [];
+    // Marks whose content scrolled out of view (or the screen showed something else for a while): off the screen, but kept
+    // with their anchors so they come back where their content reappears, until their lifetime ends or the page changes.
+    private readonly Dictionary<Guid, Annotation> _parked = [];
+    private bool _ownChange;
+    // After content moved, look again quickly for a while: a scroll rarely stops at once (wheel steps, touchpad momentum).
+    private DateTime _burstUntil;
+    private static readonly TimeSpan Burst = TimeSpan.FromSeconds(2.5), MaxBurst = TimeSpan.FromSeconds(12);
+    private DateTime _burstStarted;
     private readonly IPatchMatcher _matcher = NativePatchMatcher.Best;
     private bool _looking;
     private PxRect? _watch;
     private byte[]? _watchBaseline;
-    private int _ticks;
     private bool _sampling;
     // No baseline is taken until marks have finished appearing: a fading-in mark is not the screen changing.
     private DateTime _settledAt;
@@ -308,14 +315,20 @@ public sealed class AnnotationOverlayManager : IDisposable
 
     private async void CheckStale()
     {
-        if (_watch is not { } area || _sampling || ++_ticks % 3 != 0) return; // about once every 1.2 s
-        if (!_store.Items.Any(a => a.Source == "tutor")) { _watch = null; return; }
+        // Every tick (400 ms; 120 ms while content is moving), on a 48 px thumbnail: cheap enough to keep marks with their content.
+        if (_watch is not { } area || _sampling) return;
+        if (!_store.Items.Any(a => a.Source == "tutor") && _parked.Count == 0) { _watch = null; return; }
         // Not while a capture is being read, and not while one of Vernier's own windows covers the area: both would read as change.
         if (_looking || !CanSample() || OwnWindowOver(area)) { _watchBaseline = null; return; }
-        if (DateTime.UtcNow < _settledAt) return;
+        var moving = DateTime.UtcNow < _burstUntil;
+        if (!moving && DateTime.UtcNow < _settledAt) return;
         _sampling = true;
         try
         {
+            // While content is moving, follow it on every tick: waiting for a settled baseline would take a frame from the
+            // middle of the scroll as "unchanged" and leave the marks where the scroll found them. The re-fit's own capture
+            // leaves Vernier's windows out, so the marks moving with it do not count as change.
+            if (moving) { _watchBaseline = null; await RefitAsync(); return; }
             // New marks get their anchors once they have settled, before the baseline is taken.
             if (_store.Items.Any(a => a.Source == "tutor" && !_anchors.ContainsKey(a.Id))) await AnchorAsync();
             var now = await Task.Run(() => ScreenCaptureService.Thumbnail(area, WatchThumb)); // GDI and scaling stay off the UI thread
@@ -326,7 +339,7 @@ public sealed class AnnotationOverlayManager : IDisposable
             await RefitAsync();
         }
         catch (InvalidOperationException) { } // locked session: try again later
-        catch (Exception e) when (e is ArgumentException or System.ComponentModel.Win32Exception or OutOfMemoryException)
+        catch (Exception e) when (e is ArgumentException or KeyNotFoundException or System.ComponentModel.Win32Exception or OutOfMemoryException)
         {
             AppServices.Log.Warn("Checking whether marks still fit failed: " + e.GetType().Name); // an async void timer handler must not throw
         }
@@ -336,7 +349,7 @@ public sealed class AnnotationOverlayManager : IDisposable
     // Where marks are looked for: the window they belong to (so a scroll inside it can be followed), else their monitor.
     private PxRect ViewArea()
     {
-        var points = _store.Items.Where(a => a.Source == "tutor").SelectMany(a => a.Points).ToList();
+        var points = _store.Items.Where(a => a.Source == "tutor").Concat(_parked.Values).SelectMany(a => a.Points).ToList();
         var centre = points.Count > 0 ? new PxPoint(points.Average(p => p.X), points.Average(p => p.Y)) : Win32.VirtualDesktop().Center;
         var monitor = Win32.Monitors().FirstOrDefault(m => m.BoundsPhysical.Contains(centre))?.BoundsPhysical ?? Win32.VirtualDesktop();
         // The tracked window only when the marks are in it; marks elsewhere (another window, the desktop) are looked for on their monitor.
@@ -367,27 +380,60 @@ public sealed class AnnotationOverlayManager : IDisposable
         foreach (var gone in _anchors.Keys.Where(id => !_store.Items.Any(a => a.Id == id)).ToList()) _anchors.Remove(gone);
     }
 
-    // The content under the marks changed: each mark looks for its own content and moves with it, or goes if it is gone.
+    // The content under the marks changed: each mark looks for its own content and moves with it; a mark whose content is no
+    // longer in view is parked (hidden, kept), and a parked mark whose content is back is put back on it. Nobody asks again.
     private async Task RefitAsync()
     {
         var tutor = _store.Items.Where(a => a.Source == "tutor").ToList();
-        if (tutor.Count == 0) { _watch = null; return; }
+        if (tutor.Count == 0 && _parked.Count == 0) { _watch = null; return; }
         var area = ViewArea();
         var view = await ViewAsync(area);
         var anchors = tutor.Select(a => _anchors.TryGetValue(a.Id, out var anchor) ? anchor : new MarkAnchor(a.Id, TargetOf(a), null)).ToList();
-        var result = await Task.Run(() => MarkRefit.Decide(anchors, view, area, _matcher));
-        if (result.ClearAll) { ClearTutorMarks(); return; }
-        foreach (var (id, d) in result.Moves)
-            if (_anchors.TryGetValue(id, out var anchor)) _anchors[id] = anchor with { PatchArea = anchor.PatchArea with { X = anchor.PatchArea.X + d.X, Y = anchor.PatchArea.Y + d.Y } };
-        _store.Shift(result.Moves);
-        if (result.Lost.Count > 0)
+        var parked = _parked.Keys.Select(id => _anchors.GetValueOrDefault(id)).OfType<MarkAnchor>().ToList();
+        var (result, back) = await Task.Run(() => (MarkRefit.Decide(anchors, view, area, _matcher),
+            parked.Select(p => (p.MarkId, Shift: MarkRefit.Recover(p, view, area, _matcher))).Where(r => r.Shift is not null).ToList()));
+        var moves = new Dictionary<Guid, PxPoint>(result.Moves);
+        // A scroll moves everything in the window by one shift: marks with nothing to recognise (a blank target) follow it too.
+        if (MarkRefit.CommonShift(result.Moves.Values.ToList()) is { } common)
+            foreach (var a in anchors.Where(a => a.Patch is null && !moves.ContainsKey(a.MarkId) && !result.Lost.Contains(a.MarkId))) moves[a.MarkId] = common;
+        var leave = result.ClearAll ? tutor.Select(a => a.Id).ToHashSet() : result.Lost.ToHashSet();
+        // What a mark is about moved out of the view (scrolled out of the window): parked as well, not drawn over whatever is
+        // outside it. Judged by its anchor, not its own points: a card on free space beside the window is meant to be outside it.
+        foreach (var a in anchors.Where(a => moves.ContainsKey(a.MarkId)))
+            if (Moved(a, moves[a.MarkId]).PatchArea.Intersect(area).IsEmpty) leave.Add(a.MarkId);
+        _ownChange = true;
+        try
         {
-            _store.RemoveWhere(a => result.Lost.Contains(a.Id));
-            foreach (var id in result.Lost) _anchors.Remove(id);
+            foreach (var (id, d) in moves)
+                if (_anchors.TryGetValue(id, out var anchor)) _anchors[id] = Moved(anchor, d);
+            _store.Shift(moves.Where(m => !leave.Contains(m.Key)).ToDictionary());
+            foreach (var a in _store.Items.Where(a => leave.Contains(a.Id)).ToList())
+                _parked[a.Id] = moves.TryGetValue(a.Id, out var d) ? a.Offset(d.X, d.Y) : a;
+            if (leave.Count > 0) _store.RemoveWhere(a => leave.Contains(a.Id));
+            foreach (var (id, shift) in back)
+            {
+                // Expired or cleared while the view was being read: it stays gone.
+                if (!_parked.TryGetValue(id, out var mark) || !_anchors.TryGetValue(id, out var anchor)) continue;
+                var s = shift!.Value;
+                _store.Add(mark.Offset(s.X, s.Y));
+                _anchors[id] = Moved(anchor, s);
+                _parked.Remove(id);
+            }
         }
-        WatchTutorMarks(Win32.Monitors().FirstOrDefault(m => !m.BoundsPhysical.Intersect(area).IsEmpty)?.BoundsPhysical ?? area);
-        if (result.Moves.Count > 0 || result.Lost.Count > 0) MarksRefit?.Invoke(result.Moves.Count, result.Lost.Count);
+        finally { _ownChange = false; }
+        Watch(area); // the whole view, so parked marks can be found again wherever their content comes back
+        var changed = moves.Count > 0 || leave.Count > 0 || back.Count > 0;
+        // Follow quickly while things keep moving, but not forever: after MaxBurst the plain 400 ms watch takes over again.
+        if (changed)
+        {
+            if (DateTime.UtcNow >= _burstUntil) _burstStarted = DateTime.UtcNow; // a new burst
+            if (DateTime.UtcNow - _burstStarted < MaxBurst) _burstUntil = DateTime.UtcNow + Burst;
+        }
+        if (result.ClearAll && back.Count == 0) MarksWentStale?.Invoke();
+        else if (changed) MarksRefit?.Invoke(moves.Count - leave.Count(moves.ContainsKey) + back.Count, leave.Count);
     }
+
+    private static MarkAnchor Moved(MarkAnchor a, PxPoint d) => a with { PatchArea = a.PatchArea with { X = a.PatchArea.X + d.X, Y = a.PatchArea.Y + d.Y } };
 
     /// <summary>
     /// The always-on-top windows of Vernier that float over the work (the ask bar, dialogs): places a note card must stay
@@ -437,11 +483,22 @@ public sealed class AnnotationOverlayManager : IDisposable
         _settledAt = DateTime.UtcNow + SettleTime;
         foreach (var a in _store.Items)
             if (a.Source == "tutor" && _trackedWindow != 0) _owner.TryAdd(a.Id, _trackedWindow);
-        foreach (var gone in _owner.Keys.Where(id => _store.Items.All(a => a.Id != id)).ToList()) _owner.Remove(gone);
+        // Someone else took every tutor mark away (Clear marks, overlay_clear): parked ones must not come back after that.
+        if (!_ownChange && _parked.Count > 0 && !_store.Items.Any(a => a.Source == "tutor")) _parked.Clear();
+        foreach (var gone in _owner.Keys.Where(id => _store.Items.All(a => a.Id != id) && !_parked.ContainsKey(id)).ToList()) _owner.Remove(gone);
         foreach (var g in _glass) g.Sync();
         ShowOnlyWhenNeeded();
         SyncDismissButtons();
     }
+
+    /// <summary>Marks removed on purpose (overlay_clear, a card's ×) must not come back from the parked ones when their content does.</summary>
+    public void Forget(IEnumerable<Guid> ids)
+    {
+        foreach (var id in ids) { _parked.Remove(id); _anchors.Remove(id); _owner.Remove(id); }
+    }
+
+    /// <summary>The learner dragged a card by its grip: it moves, and stays where they put it (it still follows its window).</summary>
+    public void MoveCard(Guid id, double dx, double dy) => _store.Shift(new Dictionary<Guid, PxPoint> { [id] = new(dx, dy) });
 
     private void SyncDismissButtons()
     {
@@ -458,7 +515,7 @@ public sealed class AnnotationOverlayManager : IDisposable
         {
             if (!_dismiss.TryGetValue(id, out var button))
             {
-                button = new NoteDismissWindow(id, _store.Remove);
+                button = new NoteDismissWindow(id, gone => { Forget([gone]); _store.Remove(gone); }, MoveCard);
                 AppServices.TrackWindow(button, "Note dismiss button");
                 button.Show();
                 _dismiss[id] = button;
@@ -517,6 +574,9 @@ public sealed class AnnotationOverlayManager : IDisposable
     private void Tick()
     {
         _store.PruneExpired(DateTimeOffset.UtcNow);
+        foreach (var id in _parked.Where(p => p.Value.IsExpired(DateTimeOffset.UtcNow)).Select(p => p.Key).ToList()) { _parked.Remove(id); _anchors.Remove(id); }
+        var interval = TimeSpan.FromMilliseconds(DateTime.UtcNow < _burstUntil ? 120 : 400);
+        if (_timer.Interval != interval) _timer.Interval = interval;
         if (_trackedWindow != 0 && _trackedBounds is { } old && Win32.WindowBounds(_trackedWindow) is { } current && current != old)
         {
             var window = _trackedWindow;
@@ -532,7 +592,7 @@ public sealed class AnnotationOverlayManager : IDisposable
         if (_trackedWindow != 0 && _trackedTitle is { Length: > 0 } title && Win32.WindowTitle(_trackedWindow) is { Length: > 0 } now && now != title)
         {
             _trackedTitle = now;
-            if (_store.Items.Any(a => a.Source == "tutor")) ClearTutorMarks();
+            if (_store.Items.Any(a => a.Source == "tutor") || _parked.Count > 0) ClearTutorMarks();
         }
         CheckStale();
     }
@@ -540,6 +600,7 @@ public sealed class AnnotationOverlayManager : IDisposable
     private void ClearTutorMarks()
     {
         // Only the tutor's marks: the learner's own ink is theirs to remove.
+        _parked.Clear();
         _store.RemoveWhere(a => a.Source == "tutor");
         _anchors.Clear();
         _watch = null;

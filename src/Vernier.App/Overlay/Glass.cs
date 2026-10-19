@@ -372,6 +372,20 @@ internal static class MarkPainter
             case AnnotationKind.Label:
                 labelAt = pts[0];
                 break;
+            case AnnotationKind.Path when a.Source == "tutor" && pts.Count >= 2:
+            {
+                // A sketched graph (graph_sketch): exactly where code put it, drawn on from its start.
+                var path = new StreamGeometry();
+                using (var g = path.Open())
+                {
+                    g.BeginFigure(pts[0], false, false);
+                    g.PolyLineTo(pts.Skip(1).ToList(), true, true);
+                }
+                path.Freeze();
+                Draw(path, pen, halo);
+                labelAt = new Point(pts[^1].X + 8, pts[^1].Y);
+                break;
+            }
             case AnnotationKind.Region when pts.Count >= 3:
             {
                 // A shaded area on a graph (graph_area): straight edges, because the shape is what was added up; a light fill, an outline drawn on.

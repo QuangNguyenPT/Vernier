@@ -141,6 +141,39 @@ public class DiagramTests
     }
 
     [Fact]
+    public void The_two_worksheets_each_get_their_graph_and_their_forces_planned()
+    {
+        // Text as the screen reader gives it for the two worksheets (Fixtures/Worksheets).
+        const string sphere = "A small solid sphere is released from rest at the surface of a container of water. The graph below shows how the velocity of the sphere v varies with time t. Explain the shape of the graph. The radius of the sphere is 0.61 mm and the viscosity of the water is 1.0 x 10-3 Pa s. Show that the maximum drag force acting on the sphere is around 5 x 10-6 N. Use the graph to estimate the depth of water in the container.";
+        const string blocks = "A block of mass 2.0 kg is placed on another block of mass 5.0 kg. The blocks sit on a frictionless surface, but the coefficient of static friction between the blocks is 0.50. Calculate the magnitude of the maximum force Fmax. On the graph, sketch how the force of static friction Ff acting on the bottom block varies with the force F.";
+        var a = DimensionPolicy.Decide("help me with this question", sphere);
+        Assert.Equal("graph_area", a.Tool);
+        Assert.Equal(("forces", "fluid"), (a.Also?.Kind, a.Also?.Scene));
+        var b = DimensionPolicy.Decide("how do I do (ii)?", blocks);
+        Assert.Equal("graph_sketch", b.Tool);
+        Assert.Equal(("forces", "stacked"), (b.Also?.Kind, b.Also?.Scene));
+        var plan = TurnPlan.Build(b, Vernier.Core.Research.ResearchDemand.None, null, "how do I do (ii)?", false, true)!;
+        Assert.Contains("1. graph_sketch {\"points\"", plan);
+        Assert.Contains("2. overlay_diagram {\"kind\":\"forces\",\"scene\":\"stacked\"", plan);
+    }
+
+    [Fact]
+    public void A_white_worksheet_inside_a_dark_screen_is_page_not_ink_when_its_window_is_given()
+    {
+        // A dark desktop (luma 30) fills most of the screen; the worksheet window (white, one grey curve pixel) is a small part of it.
+        int w = 400, h = 300;
+        var px = new byte[w * h * 4];
+        for (var i = 0; i < w * h; i++) { px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = 30; px[i * 4 + 3] = 255; }
+        var page = new PxRect(20, 20, 120, 90);
+        for (var y = 20; y < 110; y++) for (var x = 20; x < 140; x++) { var k = (y * w + x) * 4; px[k] = px[k + 1] = px[k + 2] = 255; }
+        var curve = (60 * w + 70) * 4; px[curve] = px[curve + 1] = px[curve + 2] = 128;
+        Assert.True(new InkMap(px, w, h).IsInk(40, 40));                 // judged against the whole screen, the white page reads as ink
+        var ink = new InkMap(px, w, h, page);
+        Assert.False(ink.IsInk(40, 40));                                 // judged inside the window: page
+        Assert.True(ink.IsInk(70, 60));                                  // and the grey curve is ink
+    }
+
+    [Fact]
     public void Plain_questions_need_no_drawing() => Assert.False(DimensionPolicy.Decide("What does this word mean?", "An essay about the history of Rome").Required);
 
     [Fact]

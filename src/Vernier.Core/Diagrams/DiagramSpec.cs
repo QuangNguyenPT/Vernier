@@ -8,14 +8,19 @@ public enum DiagramKind { Space3D, Complex, Hypercube, Forces }
 /// <summary>
 /// One thing in a diagram. Space3D: point (a), vector (a = from, b = to), line (a = point, b = direction, range = t from..to),
 /// plane (a = point, b = normal, range = [half size]), segment (a, b). Complex: number (a = [re, im]), circle (a = centre, b = [radius]).
-/// Forces: force (a = [size, direction in degrees from +x, anticlockwise]).
+/// Forces: force (a = [size, direction in degrees from +x, anticlockwise]; on = the body it acts on, 0 = the only or bottom one, 1 = the top one).
 /// </summary>
-public sealed record DiagramItem(string Type, double[] A, double[]? B = null, string? Label = null, string? Tone = null, double[]? Range = null);
+public sealed record DiagramItem(string Type, double[] A, double[]? B = null, string? Label = null, string? Tone = null, double[]? Range = null, int On = 0);
 
 /// <param name="Caption">What was worked out, one short line each (numbers computed by code).</param>
 /// <param name="Dim">Hypercube: 3 (cube) or 4 (tesseract).</param>
 /// <param name="Angle">Hypercube: rotation in the x–w plane. Forces: the slope of the incline the body is on (0 = level ground).</param>
-public sealed record DiagramSpec(DiagramKind Kind, string? Title, IReadOnlyList<DiagramItem> Items, IReadOnlyList<string> Caption, int Dim = 3, double Angle = 30);
+/// <param name="Scene">Forces: what the body is in: a block on a slope (or level ground), a ball in a fluid, or two blocks stacked on level ground.</param>
+/// <param name="Bodies">Forces: a short name for each body, bottom first (e.g. "5.0 kg", "2.0 kg").</param>
+public sealed record DiagramSpec(DiagramKind Kind, string? Title, IReadOnlyList<DiagramItem> Items, IReadOnlyList<string> Caption, int Dim = 3, double Angle = 30,
+    ForceScene Scene = ForceScene.Slope, IReadOnlyList<string>? Bodies = null);
+
+public enum ForceScene { Slope, Fluid, Stacked }
 
 /// <summary>Everything in a diagram that can be drawn is checked here once, so the renderer never meets a malformed item.</summary>
 public static class DiagramBuilder
@@ -34,6 +39,7 @@ public static class DiagramBuilder
         if (item.Type is "line" or "plane" && item.B is { } d && d.Length >= 2 && d.All(v => Math.Abs(v) < 1e-12)) return "the direction/normal is the zero vector";
         if (item.Type == "circle" && item.B![0] <= 0) return "the radius must be positive";
         if (item.Type == "force" && item.A[0] < 0) return "a force's size is positive; point it the other way instead (add 180 to its direction)";
+        if (item.Type == "force" && item.On is < 0 or > 1) return "on is 0 (the only or bottom body) or 1 (the top body)";
         return null;
     }
 

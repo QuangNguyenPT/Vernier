@@ -69,6 +69,31 @@ public static class MarkRefit
         return new RefitResult(clearAll ? new Dictionary<Guid, PxPoint>() : moves, lost, clearAll);
     }
 
+    /// <summary>
+    /// Looks for a parked mark's content anywhere in the view (it scrolled out and may have scrolled back): the shift from
+    /// where its anchor was, on a confident, unambiguous match only; null when it is not there.
+    /// </summary>
+    public static PxPoint? Recover(MarkAnchor anchor, GrayImage view, PxRect viewArea, IPatchMatcher matcher)
+    {
+        if (anchor.Patch is not { } patch || patch.Width > view.Width || patch.Height > view.Height) return null;
+        if (matcher.Match(view, patch, 0, 0, view.Width - patch.Width + 1, view.Height - patch.Height + 1) is not { IsConfident: true, Flat: false } m) return null;
+        int ex = (int)Math.Round((anchor.PatchArea.X - viewArea.X) / 2), ey = (int)Math.Round((anchor.PatchArea.Y - viewArea.Y) / 2);
+        return new PxPoint(2 * (m.X - ex), 2 * (m.Y - ey));
+    }
+
+    /// <summary>
+    /// The one shift most marks moved by (a scroll moves a window's content as one): the median move when at least two marks
+    /// moved and two thirds of them agree with it within 4 px; null otherwise. Marks with nothing to recognise follow it.
+    /// </summary>
+    public static PxPoint? CommonShift(IReadOnlyCollection<PxPoint> moves)
+    {
+        if (moves.Count < 2) return null;
+        var mx = moves.Select(m => m.X).Order().ElementAt(moves.Count / 2);
+        var my = moves.Select(m => m.Y).Order().ElementAt(moves.Count / 2);
+        var agree = moves.Count(m => Math.Abs(m.X - mx) <= 4 && Math.Abs(m.Y - my) <= 4);
+        return agree * 3 >= moves.Count * 2 ? new PxPoint(mx, my) : null;
+    }
+
     private static bool StillBlank(GrayImage view, GrayImage patch, int x, int y)
     {
         if (x < 0 || y < 0 || x + patch.Width > view.Width || y + patch.Height > view.Height) return false;

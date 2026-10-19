@@ -25,7 +25,7 @@ public static class OperatorGuide
         "Vernier tools for the learner's current question. Draw with tools, never with code: two or more marks go in ONE overlay_marks call; " +
         "to show working or an explanation call overlay_write once (a dark handwriting card placed on free space automatically; one line per step, equations as TeX in math). " +
         "Name targets by id from the screen list. Look once: ids go stale after look. " +
-        "For an area on a graph call graph_area {\"trace\":{\"x_from\":0,\"x_to\":10}} (Vernier reads the axes and follows the real curve). For forces on a body call overlay_diagram with kind forces. " +
+        "For an area on a graph call graph_area {\"trace\":{\"x_from\":0,\"x_to\":10}} (Vernier reads the axes and follows the real curve). For a graph to sketch call graph_sketch {\"points\":[[0,0],[13.7,9.81]]}. For forces on a body call overlay_diagram with kind forces. " +
         "If a tool refuses, read why, fix the arguments and call it again; never give up on drawing because of a tool error. Follow the plan in the question when there is one. " +
         "For vectors, lines, planes, complex numbers or higher dimensions call overlay_diagram (set measure; Vernier computes the answer); write symbols, never TeX commands, in text and labels. " +
         "When the question says research is REQUIRED, call web_research first and read at least 3 working sources; research anything you are not sure of; explain in your own words. computer_act, notes_write and gdocs_append run only after the learner approves each call, " +

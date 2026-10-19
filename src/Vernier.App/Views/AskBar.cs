@@ -41,6 +41,8 @@ public sealed class AskBar : Window
     // Windows' own icon font: the same pen and paperclip the rest of the system uses.
     private static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
     private const string PenGlyph = "\uE70F", ClipGlyph = "\uE723";
+    private readonly ScrollViewer _scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = DefaultAnswerHeight, Focusable = false };
+    private const double DefaultWidth = 580, DefaultAnswerHeight = 420;
     private PxRect _monitor;
     private nint _subject; // the application that was in front when the bar was called up
     private bool _closing, _answerIsMine;
@@ -50,7 +52,7 @@ public sealed class AskBar : Window
     public AskBar()
     {
         Title = "Vernier ask bar";
-        Width = 580;
+        Width = DefaultWidth;
         SizeToContent = SizeToContent.Height;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -125,7 +127,27 @@ public sealed class AskBar : Window
         answerStack.Children.Add(_meta);
         answerStack.Children.Add(_answer);
         answerStack.Children.Add(_notes);
-        _answerHost.Child = new ScrollViewer { Content = answerStack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 420, Focusable = false };
+        _scroll.Content = answerStack;
+        // Resize grip, bottom-right of the answer: drag to resize, double-click for the default size.
+        var gripShape = new System.Windows.Shapes.Path { Data = System.Windows.Media.Geometry.Parse("M12,4 L4,12 M12,8 L8,12"), StrokeThickness = 1.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Margin = new Thickness(2), IsHitTestVisible = false };
+        gripShape.SetResourceReference(Shape.StrokeProperty, "InkFaint");
+        var grip = new Thumb
+        {
+            Width = 16, Height = 16, Cursor = Cursors.SizeNWSE, ToolTip = "Drag to resize the answer. Double-click for the default size.",
+                        Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
+                "<ControlTemplate TargetType='Thumb' xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><Border Background='Transparent'/></ControlTemplate>"),
+        };
+        grip.DragDelta += (_, e) => ResizeAnswer(Width + e.HorizontalChange, _scroll.MaxHeight + e.VerticalChange);
+        grip.DragCompleted += (_, _) => SaveAnswerSize();
+        grip.MouseDoubleClick += (_, _) => { ResizeAnswer(DefaultWidth, DefaultAnswerHeight); SaveAnswerSize(); };
+        AutomationProperties.SetName(grip, "Resize answer");
+        var answerGrid = new Grid();
+        answerGrid.Children.Add(_scroll);
+        var corner = new Grid { Width = 16, Height = 16, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 2, 2) };
+        corner.Children.Add(gripShape);
+        corner.Children.Add(grip);
+        answerGrid.Children.Add(corner);
+        _answerHost.Child = answerGrid;
         _answerHost.BorderThickness = new Thickness(0, 1, 0, 0);
         _answerHost.SetResourceReference(Border.BorderBrushProperty, "Rule");
         _answerHost.Visibility = Visibility.Collapsed;
@@ -220,7 +242,28 @@ public sealed class AskBar : Window
             AppServices.Overlays.PenChanged -= Sync;
             AppServices.Annotations.Changed -= Sync;
         };
+        var saved = AppServices.Settings;
+        if (saved.AskBarWidth is { } w && saved.AskBarAnswerHeight is { } h) ResizeAnswer(w, h);
         Sync();
+    }
+
+    /// <summary>Sets the bar width and the answer's maximum height (DIPs), kept between the default and 90% of the bar's monitor.</summary>
+    public void ResizeAnswer(double width, double height)
+    {
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var area = _monitor.IsEmpty ? new Size(SystemParameters.WorkArea.Width, SystemParameters.WorkArea.Height)
+            : new Size(_monitor.Width / dpi.DpiScaleX, _monitor.Height / dpi.DpiScaleY);
+        Width = Math.Clamp(width, DefaultWidth, Math.Max(DefaultWidth, area.Width * 0.9));
+        _scroll.MaxHeight = Math.Clamp(height, DefaultAnswerHeight, Math.Max(DefaultAnswerHeight, area.Height * 0.9));
+    }
+
+    private void SaveAnswerSize()
+    {
+        var s = AppServices.Settings;
+        var isDefault = Width == DefaultWidth && _scroll.MaxHeight == DefaultAnswerHeight;
+        s.AskBarWidth = isDefault ? null : Width;
+        s.AskBarAnswerHeight = isDefault ? null : _scroll.MaxHeight;
+        AppServices.SaveSettings();
     }
 
     public void ForceClose()
@@ -238,6 +281,7 @@ public sealed class AskBar : Window
         Win32.GetCursorPos(out var cursor);
         var monitors = Win32.Monitors();
         _monitor = (DpiMath.MonitorFor(new PxPoint(cursor.X, cursor.Y), monitors) ?? monitors[0]).BoundsPhysical;
+        ResizeAnswer(Width, _scroll.MaxHeight); // re-bound to this monitor
         if (!_answerIsMine || !IsVisible) { _answerHost.Visibility = Visibility.Collapsed; _answerIsMine = false; }
         if (!IsVisible) Enter();
         Show();

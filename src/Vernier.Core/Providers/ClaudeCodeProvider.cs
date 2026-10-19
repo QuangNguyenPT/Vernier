@@ -8,8 +8,6 @@ using Vernier.Core.Tools;
 
 namespace Vernier.Core.Providers;
 
-public sealed record ClaudeCodeStatus(bool Installed, string? Path, string? Version, string Guidance);
-
 /// <summary>Finds the Claude Code CLI on PATH. No install location is assumed.</summary>
 public static class ClaudeCodeLocator
 {
@@ -31,25 +29,6 @@ public static class ClaudeCodeLocator
                 if (exists(candidate)) return candidate;
             }
         return null;
-    }
-
-    public static async Task<ClaudeCodeStatus> DetectAsync(CancellationToken ct)
-    {
-        var path = FindOnPath();
-        if (path is null) return new ClaudeCodeStatus(false, null, null, SetupGuidance);
-        try
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            var (exit, stdout, _) = await ProcessRunner.RunAsync(path, ["--version"], null, null, timeout.Token).ConfigureAwait(false);
-            return exit == 0
-                ? new ClaudeCodeStatus(true, path, stdout.Trim(), "Detected. Sign-in state is checked when you press Test connection.")
-                : new ClaudeCodeStatus(false, path, null, "Claude Code was found but `claude --version` failed. Reinstall or repair it.");
-        }
-        catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or OperationCanceledException)
-        {
-            return new ClaudeCodeStatus(false, path, null, "Claude Code was found but could not be started: " + e.Message);
-        }
     }
 }
 

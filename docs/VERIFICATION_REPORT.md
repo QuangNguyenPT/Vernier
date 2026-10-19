@@ -4,7 +4,33 @@ Date: 2026-10-11 · Machine: Windows 11 24H2, build 26100, x64, one display 2560
 
 This report separates what was **run against the real thing**, what was **simulated**, and what was **not verified**. A simulated test shows the logic is right; it is not evidence that a real service or OS path works.
 
-## Revision 11 status (version 0.4.0, 2026-10-18): read this first
+## Revision 12 status (version 0.4.0, 2026-10-19): read this first
+
+Two real worksheet screenshots from the owner are now test fixtures (`tests/Vernier.Tests/Fixtures/Worksheets`): a sphere falling through water (v–t curve to terminal velocity, stopping at 0.8 s on an axis to 1.0 s) and stacked blocks with friction (an empty Ff–F grid labelled only 0 and Fmax). Debugged from a failing test on the real images first, then fixed at the root. Windows 11 build 26100, display on, Office 16 installed; the owner allowed desktop and live runs.
+
+| Command | Result |
+|---|---|
+| `dotnet test tests/Vernier.Tests` | **462 of 462 passed**, no build warnings |
+| `VERNIER_LIVE=1 VERNIER_LIVE_MODEL=haiku` (worksheets + the earlier drawing tests) | **8 of 8 passed with Haiku**, the two worksheet tests on two consecutive runs. Sphere: graph_area over 0–0.8 s (area 0.271 m, stops at the 0.8 s tick), forces drawn in water, depth ≈ 0.27 m in the answer. Blocks: graph_sketch from the origin to the Fmax tick, stacked-block forces, Fmax = 13.7 N in the answer |
+| `scripts/publish.ps1` | **462 of 462 passed** (Release); single-file publish 163 MB (exactly `Vernier.exe` + `Vernier.Native.dll`); smoke test passed (native ABI 2 loaded, MCP server and tools answered) |
+
+| Symptom on the real worksheets | Root cause (evidence) | Fix and proof |
+|---|---|---|
+| graph_area refused "trace.y_at_start is required" with an example call of `{}` | The schema marked y_at_start required while its description said optional; the example builder sampled only required keys | Schema fixed; `SchemaCheck.Example(schema, given)` now keeps the model's own arguments and fills what is missing; a test fails if any tool marks an argument required whose description starts "Optional" |
+| "No drawn curve was found" on the sphere graph | The anti-aliased curve is mid grey (darkest luma 122–133) and `InkMap` counted only luma < 105 as ink (measured from the fixture) | Ink is now judged against the page's own brightness (\|luma − page\| > 95; grid lines 182–230 stay out), and the page brightness is read inside the learner's window, so a dark desktop round a white worksheet does not turn the page into ink. Area 0.271 m, region 0 → 0.8 s on the real image |
+| Nothing could draw the requested line on the empty grid | No tool placed a graph in data units; OCR reads none of the grid's labels (0, Ff, F, Fmax are small italics) | New `graph_sketch`: points in data units; axes from the model's ticks, the tick labels, or the drawn axis lines (`GraphFrame`), a tick named by the model snapped onto its tick mark, and with no tick the line ends at the last tick mark; on the real image the line runs from (356, 917) to the Fmax tick at 799 px |
+| The setups could not be drawn | The forces diagram knew only one block on a slope | `overlay_diagram` forces `scene` fluid (tank, water, ball) and stacked (two blocks, `on` per force), net force per body in code (relative tolerance, so 10⁻⁵ N forces balance correctly); parallel forces drawn side by side, labels past the arrow tips (both checked in rendered PNGs) |
+| Policy did not force these drawings | "graph below shows", "use the graph" and "sketch" were not recognised; one drawing per answer | `DimensionPolicy`: sketch → graph_sketch, graph → graph_area, each with `Also` = forces in the right scene; `TurnPlan` lists both calls |
+| Marks lagged, stayed in the old place mid-scroll, or vanished for good | After a re-fit a new baseline was taken only after a 600 ms settle, so scrolling during that window was absorbed and never re-fitted; lost marks were deleted | While content moves the re-fit runs every 120 ms (capped at 12 s); a mark whose content leaves the view is parked and put back when it returns; marks with nothing to recognise follow the common shift. Real scrolling window test: moves with a scroll, leaves, comes back, and a mark cleared while parked stays gone (3 of 3 runs) |
+| (QoL) cards could not be moved; the answer panel could not be resized | — | A grip beside each card's × drags it (real SendInput drag: lands exactly where the pointer ends, 5 of 5; last moves applied on release); a resize grip on the answer panel, size saved in settings |
+| (computer use) the tutor could not put its answer into the learner's document | — | `write_to_app` (Act, behind Assisted input like `computer_act`): Word inserts paragraphs after the cursor's paragraph (one undo step), PowerPoint adds a slide after the current one, Excel sets one cell fixed at preview time (refused if the sheet or cell changed, a filled cell needs overwrite, network/file formulas refused by function name), other editors get a paste with the learner's clipboard restored (all formats, or no paste). Real Word, PowerPoint, Excel and Notepad tests pass. Blender is refused with teach-the-steps |
+| (found while testing) start-up could crash | `McpServer` reused an `HttpListener` after a failed `Start` (which disposes it) when the random port was taken; `Shutdown` twice disposed speech twice | New listener per attempt; `Initialize` stops a previous instance and `Shutdown` runs once per start |
+
+The intermittent end-to-end UI failure of Revision 11 recurred once in a Release run with evidence: the transcript held the right answer and only the two expected requests were made; the bar renders the finished answer on the dispatcher just after the session goes idle, and the test asserted in between. The test now waits up to 3 s for it (same failure message). The real-mouse drag test sends no input unless the card's buttons are the window under the pointer (during one run the owner's browser was in front and received the test's clicks).
+
+Not verified / known limits: the answer-panel resize grip was tested by raising its drag events, not with a real mouse; Google Docs is written by paste (the Docs API path needs a document opened through Vernier's connection); a parked mark returns only on a confident match, so content that looks alike may not bring it back; graph tracing still assumes a dark or coloured curve on a light page, and crossing curves and log axes are not supported. Code review (C# reviewer) found 11 issues; all were fixed except that full-view captures still run every 120 ms during a burst (capped at 12 s).
+
+## Revision 11 status (version 0.4.0, 2026-10-18)
 
 Debugged from evidence first (the owner's log and route records, then failing tests), then fixed at the root. Run on Windows 11 build 26100, display on; the owner allowed desktop and live runs.
 

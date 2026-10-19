@@ -25,6 +25,26 @@ public class MarkRefitTests
     private static readonly PxRect View = new(1000, 500, 1200, 800); // physical; the grey images are half of it: 600 x 400
 
     [Fact]
+    public void A_mark_whose_content_scrolled_out_is_found_again_anywhere_when_it_comes_back()
+    {
+        var before = Page(600, 400, 3);
+        var a = MarkAnchor.From(Guid.NewGuid(), new PxRect(1300, 700, 140, 40), before, View);
+        foreach (var matcher in Matchers())
+        {
+            Assert.Null(MarkRefit.Recover(a, Page(600, 400, 3, shiftY: 180), View, matcher));                    // scrolled out of view: not there
+            Assert.Equal(new PxPoint(0, 300), MarkRefit.Recover(a, Page(600, 400, 3, shiftY: -150), View, matcher)); // back, further down than the scroll search reaches
+        }
+    }
+
+    [Fact]
+    public void Marks_with_nothing_to_recognise_follow_the_shift_most_marks_agree_on()
+    {
+        Assert.Equal(new PxPoint(0, -74), MarkRefit.CommonShift([new(0, -74), new(0, -74), new(2, -72)]));
+        Assert.Null(MarkRefit.CommonShift([new(0, -74)]));                    // one mark is not a scroll
+        Assert.Null(MarkRefit.CommonShift([new(0, -74), new(0, 120), new(40, 0)])); // they disagree: no common shift
+    }
+
+    [Fact]
     public void A_scroll_moves_each_mark_with_its_content()
     {
         var before = Page(600, 400, 1);

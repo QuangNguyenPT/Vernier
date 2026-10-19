@@ -41,13 +41,24 @@ public class DiagramRenderTests
         return new DiagramSpec(DiagramKind.Forces, "Forces on the box", forces, [$"Along the slope (up): {DiagramBuilder.Number(Math.Round(r.Along, 2))} N"], 3, 30);
     }
 
+    // The worksheet's sphere at terminal speed: weight down, drag and upthrust up, balanced.
+    private static readonly DiagramSpec Sphere = new(DiagramKind.Forces, "Sphere at terminal velocity",
+        [new("force", [1.38e-5, 270], null, "W = 1.38×10⁻⁵ N"), new("force", [4.6e-6, 90], null, "D = 4.6×10⁻⁶ N"), new("force", [9.2e-6, 90], null, "U = 9.2×10⁻⁶ N")],
+        ["The forces balance: ΣF = 0."], Scene: ForceScene.Fluid, Bodies: ["sphere"]);
+
+    // The worksheet's stacked blocks at F = Fmax: F on the top block, the friction pair, weights and normal reactions.
+    private static readonly DiagramSpec Stacked = new(DiagramKind.Forces, "Blocks moving together",
+        [new("force", [13.7, 0], null, "F = 13.7 N", On: 1), new("force", [9.81, 180], null, "f = 9.81 N", "warn", On: 1), new("force", [9.81, 0], null, "f = 9.81 N", "warn", On: 0),
+         new("force", [19.6, 270], null, "W₁", "soft", On: 1), new("force", [19.6, 90], null, "R₁", "soft", On: 1)],
+        ["top block: ΣF = 3.92 N", "bottom block: ΣF = 9.81 N"], Scene: ForceScene.Stacked, Bodies: ["5.0 kg", "2.0 kg"]);
+
     private static readonly DiagramSpec Tesseract = new(DiagramKind.Hypercube, "A tesseract (4D cube)", [], ["16 corners, 32 edges; green edges run along the 4th axis."], 4, 30);
 
     [Fact]
     public void Every_kind_of_diagram_renders_a_dark_card_with_drawing_on_it() => WindowsRealApiTests.OnSta(() =>
     {
         var dir = Environment.GetEnvironmentVariable("VERNIER_SHOT_DIR");
-        foreach (var (name, spec) in new[] { ("skew", Skew()), ("torque", Forces), ("argand", Argand), ("tesseract", Tesseract), ("forces", Ramp()) })
+        foreach (var (name, spec) in new[] { ("skew", Skew()), ("torque", Forces), ("argand", Argand), ("tesseract", Tesseract), ("forces", Ramp()), ("sphere-in-water", Sphere), ("stacked-blocks", Stacked) })
         {
             var card = DiagramRenderer.Render(spec, 440, 1.25);
             Assert.InRange(card.SizeDip.Height, 200, 640);

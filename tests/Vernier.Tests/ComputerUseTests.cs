@@ -90,9 +90,9 @@ public class ComputerUseTests(ITestOutputHelper output)
                 return turn;
             }
 
-            async Task<ToolResult> Act(ToolTurn turn, JsonObject args, bool allow)
+            async Task<ToolResult> Act(ToolTurn turn, JsonObject args, bool allow, string tool = "computer_act")
             {
-                var run = AppServices.Tools.RunAsync("computer_act", args, turn, CancellationToken.None);
+                var run = AppServices.Tools.RunAsync(tool, args, turn, CancellationToken.None);
                 await Until(() => ApprovalCard() is not null || run.IsCompleted, "the approval card", 8000);
                 if (ApprovalCard() is { } card)
                 {
@@ -127,6 +127,8 @@ public class ComputerUseTests(ITestOutputHelper output)
             var off = await AppServices.Tools.RunAsync("computer_act", new JsonObject { ["action"] = "type", ["text"] = "x", ["why"] = "test" }, await Turn(notepad), CancellationToken.None);
             Assert.True(off.IsError);
             Assert.Contains("Assisted input is off", off.Text);
+            var offWrite = await AppServices.Tools.RunAsync("write_to_app", new JsonObject { ["text"] = "x", ["why"] = "test" }, await Turn(notepad), CancellationToken.None);
+            Assert.Contains("Assisted input is off", offWrite.Text); // writing into apps is assisted input too
             AppServices.Settings.AllowComputerControl = true;
 
             // Denied: nothing typed.
@@ -143,6 +145,15 @@ public class ComputerUseTests(ITestOutputHelper output)
             await Until(() => File.ReadAllText(file).Contains("hello from vernier"), "the typed text to be saved to disk", 5000);
             Assert.DoesNotContain("should not appear", File.ReadAllText(file));
 
+            // write_to_app in an editor that is not Office: the worked text is pasted at the cursor after approval, and the learner's clipboard comes back.
+            System.Windows.Clipboard.SetText("the learner's own clipboard");
+            var pasted = await Act(await Turn(notepad), new JsonObject { ["text"] = "\nFmax = 13.7 N", ["why"] = "the answer to (b)(i)" }, allow: true, tool: "write_to_app");
+            Assert.False(pasted.IsError, pasted.Text);
+            Assert.Contains("Pasted", pasted.Text);
+            Assert.Equal("the learner's own clipboard", System.Windows.Clipboard.GetText());
+            await Act(await Turn(notepad), new JsonObject { ["action"] = "keys", ["keys"] = "ctrl+s", ["why"] = "save the file" }, allow: true);
+            await Until(() => File.ReadAllText(file).Contains("Fmax = 13.7 N"), "the pasted text to be saved to disk", 5000);
+
             // A blocked chord never reaches the learner.
             var blocked = await AppServices.Tools.RunAsync("computer_act", new JsonObject { ["action"] = "keys", ["keys"] = "win+r", ["why"] = "open run" }, await Turn(notepad), CancellationToken.None);
             Assert.True(blocked.IsError);
@@ -155,6 +166,8 @@ public class ComputerUseTests(ITestOutputHelper output)
             var terminal = await AppServices.Tools.RunAsync("computer_act", new JsonObject { ["action"] = "type", ["text"] = "dir", ["why"] = "list files" }, await Turn(console), CancellationToken.None);
             Assert.True(terminal.IsError);
             Assert.Contains("terminal", terminal.Text);
+            var terminalWrite = await AppServices.Tools.RunAsync("write_to_app", new JsonObject { ["text"] = "dir", ["why"] = "list files" }, await Turn(console), CancellationToken.None);
+            Assert.Contains("terminal", terminalWrite.Text);
             Assert.Null(ApprovalCard());
         }
         finally

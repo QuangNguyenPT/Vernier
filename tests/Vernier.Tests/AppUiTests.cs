@@ -209,6 +209,9 @@ public class AppUiTests(ITestOutputHelper output)
             Assert.Equal(4, AppServices.Session.Transcript.Count);
             Assert.Contains("about the screen", AppServices.Session.Transcript[2].Meta);
             var turnNotes = string.Join(" | ", AppServices.Session.Transcript[3].Notices);
+            // The bar renders the finished answer on the dispatcher just after the session goes idle: give it that moment.
+            try { await Until(() => Descendants<RichAnswer>(bar).Any(t => t.Source == "The kinetic energy is 9 J."), "the bar to render the answer", 3000); }
+            catch (TimeoutException) { } // reported with the evidence below
             Assert.True(Descendants<RichAnswer>(bar).Any(t => t.Source == "The kinetic energy is 9 J."), "the bar did not show the answer; notices: " + turnNotes + " · answer: " + AppServices.Session.Transcript[3].Text + " · requests: " + bodies.Count);
             Assert.Contains("image_url", bodies[^1]); // the capture really went to the provider (the stub is marked image-capable below)
             Assert.NotNull(AppServices.Session.LastSnapshot?.Frame);

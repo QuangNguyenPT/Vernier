@@ -172,7 +172,7 @@ public sealed class ToolExecutor(ToolRegistry registry, IToolApprover approver, 
         if (!turn.TryCount()) return ToolResult.Fail($"Tool call limit for this turn ({turn.MaxCalls}) reached. Finish your answer without more tools.");
         args = SchemaCheck.Repair(tool.Definition.InputSchema, args); // what small models commonly get wrong is fixed, not refused
         if (SchemaCheck.Validate(tool.Definition.InputSchema, args) is { } problem)
-            return ToolResult.Fail($"Invalid arguments for {name}: {problem}. Call {name} again with arguments shaped like: {SchemaCheck.Example(tool.Definition.InputSchema)}");
+            return ToolResult.Fail($"Invalid arguments for {name}: {problem}. Call {name} again with arguments shaped like: {SchemaCheck.Example(tool.Definition.InputSchema, args)}");
         if (gate?.Invoke(tool.Definition) is { } refusal) return ToolResult.Fail(refusal);
 
         using var run = CancellationTokenSource.CreateLinkedTokenSource(ct, turn.Cancellation);
@@ -292,18 +292,33 @@ public static class SchemaCheck
     }
 
     /// <summary>A minimal valid call for a schema (required arguments with placeholder values): shown when arguments are refused.</summary>
-    public static string Example(JsonObject schema) => (Sample(schema) ?? new JsonObject()).ToJsonString();
+    /// <summary>A call that passes validation, built from what the model sent (its own values kept where they fit) with every missing required argument filled in.</summary>
+    public static string Example(JsonObject schema, JsonNode? given = null) => (Sample(schema, given) ?? new JsonObject()).ToJsonString();
 
-    private static JsonNode? Sample(JsonObject schema) => schema["type"]?.GetValue<string>() switch
+    private static JsonNode? Sample(JsonObject schema, JsonNode? given = null) => schema["type"]?.GetValue<string>() switch
     {
-        "object" => new JsonObject((schema["required"] as JsonArray ?? []).Select(r => r?.GetValue<string>()).Where(r => r is not null && schema["properties"]?[r!] is JsonObject)
-            .Select(r => KeyValuePair.Create(r!, Sample((JsonObject)schema["properties"]![r!]!)))),
+        "object" => SampleObject(schema, given as JsonObject),
+        "array" when given is JsonArray { Count: > 0 } ga && schema["items"] is JsonObject gi => new JsonArray([.. ga.Select(g => Sample(gi, g))]),
         "array" => new JsonArray(Enumerable.Repeat(0, Math.Max(1, (int)(Json.Number(schema["minItems"]) ?? 1))).Select(_ => schema["items"] is JsonObject i ? Sample(i) : null).ToArray()),
+        "number" or "integer" when given is JsonValue gv && gv.TryGetValue<double>(out _) => given.DeepClone(),
+        "string" when given is JsonValue gs && gs.TryGetValue<string>(out var str) && (schema["enum"] is not JsonArray en || en.Any(e => e?.GetValue<string>() == str)) => given.DeepClone(),
+        "boolean" when given is JsonValue gb && gb.TryGetValue<bool>(out _) => given.DeepClone(),
         "string" => schema["enum"] is JsonArray e ? e[0]?.DeepClone() : JsonValue.Create("…"),
         "number" or "integer" => JsonValue.Create(0),
         "boolean" => JsonValue.Create(false),
         _ => null,
     };
+
+    private static JsonObject SampleObject(JsonObject schema, JsonObject? given)
+    {
+        var props = schema["properties"] as JsonObject ?? [];
+        var o = new JsonObject();
+        foreach (var (key, value) in given ?? [])
+            if (props[key] is JsonObject p && Sample(p, value) is { } v) o[key] = v;
+        foreach (var r in (schema["required"] as JsonArray ?? []).Select(r => r?.GetValue<string>()))
+            if (r is not null && !o.ContainsKey(r) && props[r] is JsonObject p) o[r] = Sample(p);
+        return o;
+    }
 
     private static string? Check(JsonObject schema, JsonNode? value, string path)
     {

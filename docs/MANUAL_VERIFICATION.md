@@ -112,6 +112,10 @@ Use a harmless target (Notepad, with nothing unsaved).
 
 - [ ] Ask a long question (research and drawing, over two minutes): the tutor still draws at the end; Diagnostics' log shows "Tool … ok" lines.
 - [ ] A ramp or pulley question: a free-body diagram appears with the net force; move the window: the diagram card moves with it.
+- [ ] The sphere worksheet: the area under the curve is shaded only to 0.8 s and a tank-of-water force diagram appears. The friction worksheet: a line is sketched on the empty grid from 0 to Fmax and a stacked-blocks diagram appears.
+- [ ] Scroll a page with marks on it: they move with it, disappear when their content scrolls away, and come back when you scroll back, without asking again.
+- [ ] Drag a note card by its grip (left of the ×); drag the answer panel's corner to resize it, restart: the size is kept.
+- [ ] With Assisted input on, ask the tutor to put the answer into Word, PowerPoint, Excel and Notepad: each shows the exact text first, and Ctrl+Z in Word removes it in one step.
 
 ## 8c. Look and feel
 

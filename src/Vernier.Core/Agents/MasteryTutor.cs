@@ -129,7 +129,8 @@ public sealed class MasteryTutor
         if (context?.App is { } app) user.AppendLine($"The learner is working in {app.Name} ({app.Category}). {app.Hints}");
         // Decided by Vernier's code for this turn, not a suggestion: the answer is checked against it.
         if (visual is { Required: true } vd)
-            user.AppendLine($"Drawing: REQUIRED for this answer, because {vd.Reason}. Call {vd.Tool}{(vd.Tool == "overlay_diagram" ? $" (kind {vd.Kind})" : "")} before you explain; an answer without it is sent back.");
+            user.AppendLine($"Drawing: REQUIRED for this answer, because {vd.Reason}. Call {vd.Tool}{(vd.Tool == "overlay_diagram" ? $" (kind {vd.Kind})" : "")} before you explain; an answer without it is sent back." +
+                            (vd.Also is { } also ? $" Also draw {also.Tool}{(also.Tool == "overlay_diagram" ? $" (kind {also.Kind}, scene {also.Scene})" : "")}: {also.Reason}." : ""));
         // Decided by code for this turn: the steps, with the calls half filled in. Small models follow it; it is checked afterwards.
         if (TurnPlan.Build(visual ?? VisualDemand.None, research ?? Research.ResearchDemand.None, context?.App?.Name, question,
                 tools?.Turn.Allowed.Contains("web_research") == true, tools is not null && (visual?.Tool is { } t && tools.Turn.Allowed.Contains(t))) is { } plan)

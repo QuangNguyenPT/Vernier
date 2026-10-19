@@ -50,8 +50,12 @@ public static class AppServices
 
     private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan }; // per-call timeouts are enforced by ChatRunner
 
+    private static bool _initialized;
+
     public static void Initialize(string? dataDirOverride = null)
     {
+        // Starting again without stopping first (tests do) would leave the old overlay's windows on the screen, over the new ones.
+        Shutdown();
         DataDir = dataDirOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vernier");
         Directory.CreateDirectory(DataDir);
         Log = new DiagnosticLog(Path.Combine(DataDir, "logs", "vernier.log"));
@@ -123,6 +127,7 @@ public static class AppServices
         catch (Exception e) { Log.Warn("Speech output unavailable: " + e.Message); }
         SpeechIn = new SapiSpeechInput(); // the engine is only created when the learner first holds the talk button
         Log.Info($"Started. Windows build {Environment.OSVersion.Version.Build}, schema v{Store.SchemaVersion}, provider {Settings.ActiveProviderId}.");
+        _initialized = true;
     }
 
     // Settings are checked again on every call, so turning capture off or entering Share-Safe mid-answer stops the next look.
@@ -132,7 +137,7 @@ public static class AppServices
         : tool.Name.StartsWith("gdocs_", StringComparison.Ordinal) && !Google.IsConnected ? "Google Docs is not connected (Settings › Connectors)."
         : (tool.Name.StartsWith("notes_", StringComparison.Ordinal) || tool.Name == "gdocs_read") && !Session.TurnProviderIsLocal && !Settings.AllowSendNotesToRemote ? "Sending notes to this provider is not allowed (Settings › Privacy), so they stay on this computer."
         : tool.Name.StartsWith("notes_", StringComparison.Ordinal) && string.IsNullOrWhiteSpace(Settings.VaultPath) ? "No Obsidian vault is connected (Notes & files), so there are no notes to use."
-        : tool.Name == "computer_act" && !Settings.AllowComputerControl ? "Assisted input is off (Settings › Assisted input), so the tutor cannot operate the computer. Give the learner the steps to do themselves."
+        : tool.Name is "computer_act" or "write_to_app" && !Settings.AllowComputerControl ? "Assisted input is off (Settings › Assisted input), so the tutor cannot operate the computer. Give the learner the steps to do themselves."
         : tool.Name == "computer_act" && Session.CaptureBlocked ? Session.CaptureBlockedReason + " Without the screen the tutor cannot see where to act."
         : null;
 
@@ -196,6 +201,9 @@ public static class AppServices
 
     public static void Shutdown()
     {
+        // Once per start: services are disposed here and must not be disposed (or used) a second time.
+        if (!_initialized) return;
+        _initialized = false;
         Tray?.Dispose();
         Tray = null;
         Session?.Pause();

@@ -137,7 +137,7 @@ public class ToolOverlayTests(ITestOutputHelper output)
     });
 
     [Fact]
-    public void A_note_card_has_its_own_dismiss_button_in_its_corner_and_it_removes_only_that_card() => WindowsRealApiTests.OnAppSta(() =>
+    public void A_note_card_has_a_move_grip_and_a_dismiss_button_in_its_corner_dragging_moves_only_it_and_dismiss_removes_only_it() => WindowsRealApiTests.OnAppSta(() =>
     {
         using var dir = new TempDir();
         AppServices.Initialize(dir.Path);
@@ -161,7 +161,19 @@ public class ToolOverlayTests(ITestOutputHelper output)
             Assert.True(at.Right <= x + 400 && at.Right > x + 400 - 40 && at.Y >= y && at.Y < y + 40, $"the button at {at} is not in the card's top-right corner");
             Assert.DoesNotContain(at, AppServices.Overlays.OwnWindowRects()); // part of the overlay, not a window a card must avoid
 
-            var peer = new System.Windows.Automation.Peers.ButtonAutomationPeer((System.Windows.Controls.Button)button.Content);
+            var buttons = ((System.Windows.Controls.Panel)button.Content).Children.OfType<System.Windows.Controls.Button>().ToList();
+            Assert.Equal(["Move note", "Dismiss note"], buttons.Select(System.Windows.Automation.AutomationProperties.GetName));
+
+            // The learner drags the card by its grip: it moves by exactly that much, as the learner put it, and the buttons go with it.
+            AppServices.Overlays.MoveCard(card.Id, 120, -40);
+            DispatcherPump();
+            var dragged = AppServices.Annotations.Items.Single(a => a.Id == card.Id);
+            Assert.Equal(new PxPoint(x + 120, y - 40), dragged.Points[0]);
+            var moved = Vernier.App.Platform.Win32.WindowBounds(new System.Windows.Interop.WindowInteropHelper(button).Handle)!.Value;
+            Assert.Equal(at.X + 120, moved.X, 1);
+            Assert.Equal(circle.Points[0], AppServices.Annotations.Items.Single(a => a.Id == circle.Id).Points[0]); // nothing else moved
+
+            var peer = new System.Windows.Automation.Peers.ButtonAutomationPeer(buttons[1]);
             ((System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!).Invoke();
             DispatcherPump();
             Assert.Equal(circle.Id, Assert.Single(AppServices.Annotations.Items).Id); // the other mark stays
@@ -374,7 +386,7 @@ public class LiveOperatorTests(ITestOutputHelper output)
         using var grant = AppServices.Mcp!.Open(turn);
         var defs = AppServices.Tools.Registry.Definitions.Where(d => tools.Contains(d.Name)).ToList();
         var session = new Vernier.Core.Providers.ToolSession(defs, turn, AppServices.Tools, AppServices.Mcp);
-        var provider = new Vernier.Core.Providers.ClaudeCodeProvider(new Vernier.Core.Settings.ProviderSettings { Id = "claude-code", DisplayName = "Claude Code", Kind = Vernier.Core.Settings.ProviderKinds.ClaudeCode, Model = Environment.GetEnvironmentVariable("VERNIER_LIVE_MODEL") }, dataDir); // e.g. haiku: the small model the learner uses
+        var provider = new Vernier.Core.Providers.ClaudeCodeProvider(new Vernier.Core.Settings.ProviderSettings { Id = "claude-code", DisplayName = "Claude Code", Kind = Vernier.Core.Settings.ProviderKinds.ClaudeCode, Model = Environment.GetEnvironmentVariable("VERNIER_LIVE_MODEL") ?? "" }, dataDir); // e.g. haiku: the small model the learner uses
         var system = new MasteryTutor().BuildSystem(new Vernier.Core.Settings.LearnerProfile(), LearningSummary.None, false, tools: true);
         var request = new Vernier.Core.Providers.ChatRequest(system, [Vernier.Core.Providers.ChatMessage.User(question)], Tools: session);
         var result = await Vernier.Core.Providers.ChatRunner.CompleteAsync(provider, request, TimeSpan.FromSeconds(300), CancellationToken.None);

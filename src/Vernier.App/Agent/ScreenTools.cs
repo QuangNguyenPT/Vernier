@@ -28,8 +28,8 @@ public static class ScreenTools
     public static IdSequence Ids(ToolTurn turn) => (IdSequence)turn.State.GetOrAdd(IdsKey, _ => new IdSequence());
     private static IdSequence MarkIds(ToolTurn turn) => (IdSequence)turn.State.GetOrAdd("markIds", _ => new IdSequence());
 
-    public static IEnumerable<ITool> All() => [new FindOnScreen(), new OverlayMark(), new OverlayMarks(), new OverlayWrite(), new GraphArea(), new OverlayDiagram(), new OverlayClear(), new Look()];
-    public static readonly string[] Names = ["find_on_screen", "overlay_mark", "overlay_marks", "overlay_write", "graph_area", "overlay_diagram", "overlay_clear", "look"];
+    public static IEnumerable<ITool> All() => [new FindOnScreen(), new OverlayMark(), new OverlayMarks(), new OverlayWrite(), new GraphArea(), new GraphSketch(), new OverlayDiagram(), new OverlayClear(), new Look()];
+    public static readonly string[] Names = ["find_on_screen", "overlay_mark", "overlay_marks", "overlay_write", "graph_area", "graph_sketch", "overlay_diagram", "overlay_clear", "look"];
 
     internal static ScreenIndex Screen(ToolTurn turn) =>
         turn.State.TryGetValue(ScreenKey, out var s) && s is ScreenIndex index ? index
@@ -281,7 +281,7 @@ public static class ScreenTools
                 ["area_unit"] = Str("Unit of the area, e.g. m (s × m/s). Default: y_unit·x_unit.", 16),
                 ["trace"] = new JsonObject
                 {
-                    ["type"] = "object", ["required"] = new JsonArray("x_from", "x_to", "y_at_start"), ["additionalProperties"] = false,
+                    ["type"] = "object", ["required"] = new JsonArray("x_from", "x_to"), ["additionalProperties"] = false,
                     ["properties"] = new JsonObject
                     {
                         ["x_from"] = Num("Left end of the region, in x units."), ["x_to"] = Num("Right end, in x units."), ["y_at_start"] = Num("Optional: the curve's value at x_from (roughly). Leave it out and Vernier finds the curve itself."),
@@ -334,7 +334,7 @@ public static class ScreenTools
 
             // The screenshot's pixels, to put the reading onto the real drawn line.
             var frame = (turn.State.TryGetValue(FullFrameKey, out var full) ? full : turn.State.GetValueOrDefault(FrameKey)) as CapturedFrame;
-            var ink = frame?.Raw is { } raw ? new InkMap(raw.Bgra, raw.Width, raw.Height) : null;
+            var ink = InkOf(turn, frame);
             var src = frame?.Geometry.SourcePhysical ?? default;
             PxPoint ToRaw(PxPoint img) { var p = screen.Geometry.ImageToPhysical(img); return new((p.X - src.X) * ink!.Width / src.Width, (p.Y - src.Y) * ink.Height / src.Height); }
             PxPoint RawToPhysical(PxPoint r) => new(src.X + r.X * src.Width / ink!.Width, src.Y + r.Y * src.Height / ink.Height);
@@ -457,6 +457,163 @@ public static class ScreenTools
         internal static string Number(double v) => DiagramBuilder.Number(v);
     }
 
+    /// <summary>
+    /// Draws a graph the question asks for ("sketch how Ff varies with F") onto the learner's own axes: points in data units,
+    /// placed by code. Axes come from the model's ticks, the tick labels on the screen, or (for an empty grid whose labels
+    /// cannot be read) the drawn axis lines themselves, with one labelled tick per axis snapped onto its tick mark.
+    /// </summary>
+    private sealed class GraphSketch : ITool
+    {
+        public const int MaxPoints = 40;
+        /// <summary>With no value on an axis, the sketch's largest value is drawn this far along it.</summary>
+        public const double FitFraction = 0.85;
+
+        private static JsonObject Ticks(string axis) => new()
+        {
+            ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 2,
+            ["description"] = $"Optional: one or two labelled ticks on the {axis} axis: where each is in the screenshot (px: its {axis} pixel coordinate) and its value. " +
+                              $"With one tick the axis starts at 0 where the axes cross; a tick labelled with a symbol (Fmax) takes the value you worked out for it.",
+            ["items"] = new JsonObject
+            {
+                ["type"] = "object", ["required"] = new JsonArray("px", "value"), ["additionalProperties"] = false,
+                ["properties"] = new JsonObject { ["px"] = new JsonObject { ["type"] = "number" }, ["value"] = new JsonObject { ["type"] = "number" } },
+            },
+        };
+
+        public ToolDefinition Definition { get; } = new("graph_sketch",
+            "Draws a graph the question asks the learner to sketch, onto the axes on the screen: a line or curve through points in data units. " +
+            "Simplest call: {\"points\": [[0,0],[13.7,9.8]]}: Vernier finds the axes (tick labels, or the drawn axis lines of an empty grid) and places the points. " +
+            "If an axis has a labelled tick but no numbers (e.g. Fmax), pass that tick: \"x_ticks\": [{\"px\": 800, \"value\": 13.7}] (px read from the screenshot; it is snapped onto the tick mark). " +
+            "An axis with no values at all is scaled to fit. smooth: true for a curve, otherwise straight segments. Use it for the shape of a relationship, not to shade areas (graph_area does that).",
+            Schema(new JsonObject
+            {
+                ["points"] = new JsonObject
+                {
+                    ["type"] = "array", ["minItems"] = 2, ["maxItems"] = MaxPoints, ["description"] = "Points in data units, left to right, e.g. [[0,0],[13.7,9.8]].",
+                    ["items"] = new JsonObject { ["type"] = "array", ["minItems"] = 2, ["maxItems"] = 2, ["items"] = new JsonObject { ["type"] = "number" } },
+                },
+                ["x_ticks"] = Ticks("x"),
+                ["y_ticks"] = Ticks("y"),
+                ["smooth"] = new JsonObject { ["type"] = "boolean", ["description"] = "Optional: a smooth curve through the points instead of straight segments." },
+                ["label"] = Str("Optional: a short label at the end of the line, e.g. Ff = (5/7)F.", 40),
+            }, "points"),
+            ToolRisk.Annotate);
+
+        public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolTurn turn, CancellationToken ct)
+        {
+            var screen = Screen(turn);
+            var monitor = MonitorOf(turn, screen);
+            static double Num(JsonNode? n) => n is JsonValue v && v.TryGetValue<double>(out var d) ? d : double.NaN;
+            var points = (args["points"] as JsonArray)?.Select(v => (X: Num(v?[0]), Y: Num(v?[1]))).ToList() ?? [];
+            if (points.Count < 2 || points.Any(p => !double.IsFinite(p.X) || !double.IsFinite(p.Y))) return ToolResult.Fail("points needs at least two [x, y] pairs of numbers in data units, e.g. {\"points\": [[0,0],[13.7,9.8]]}. Nothing was drawn.");
+            static List<AxisTick> TicksOf(JsonNode? n) => (n as JsonArray)?.Select(t => new AxisTick(Num(t?["px"]), Num(t?["value"]))).Where(t => double.IsFinite(t.Px) && double.IsFinite(t.Value)).ToList() ?? [];
+            var xt = TicksOf(args["x_ticks"]);
+            var yt = TicksOf(args["y_ticks"]);
+
+            var frame = (turn.State.TryGetValue(FullFrameKey, out var full) ? full : turn.State.GetValueOrDefault(FrameKey)) as CapturedFrame;
+            var ink = InkOf(turn, frame);
+            var src = frame?.Geometry.SourcePhysical ?? default;
+            PxPoint ToRaw(PxPoint img) { var p = screen.Geometry.ImageToPhysical(img); return new((p.X - src.X) * ink!.Width / src.Width, (p.Y - src.Y) * ink.Height / src.Height); }
+            PxPoint RawToImage(PxPoint r) => screen.Geometry.PhysicalToImage(new PxPoint(src.X + r.X * src.Width / ink!.Width, src.Y + r.Y * src.Height / ink.Height));
+
+            AxisCalibration axes;
+            var how = new StringBuilder();
+            if (xt.Count == 2 && yt.Count == 2) { axes = new AxisCalibration(xt[0], xt[1], yt[0], yt[1]); how.Append("Axes from your ticks."); }
+            else if (xt.Count < 2 && yt.Count < 2 && AxisFinder.Find(screen.Items.Where(i => i.Kind is ScreenItemKind.Word or ScreenItemKind.Line).Select(i => (i.Text, screen.Image(i.Bounds)))) is { } found)
+            { axes = found; how.Append("Axes read by Vernier from the tick labels on the screen."); }
+            else
+            {
+                if (ink is null || src.Width <= 0 || GraphFrame.Find(ink) is not { } lines)
+                    return ToolResult.Fail("Vernier could not find the graph's axes: no tick labels it can read and no pair of drawn axis lines. Pass two labelled ticks per axis as x_ticks and y_ticks ([{\"px\": pixel, \"value\": number}, …]). Nothing was drawn.");
+                var origin = RawToImage(lines.Origin);
+                var xEnd = RawToImage(new PxPoint(lines.XEnd, lines.Origin.Y)).X;
+                var yEnd = RawToImage(new PxPoint(lines.Origin.X, lines.YEnd)).Y;
+                how.Append($"Axes found from the drawn axis lines (they cross at ({origin.X:0}, {origin.Y:0}) px).");
+                AxisTick Snapped(AxisTick t, bool x)
+                {
+                    var r = ToRaw(x ? new PxPoint(t.Px, origin.Y) : new PxPoint(origin.X, t.Px));
+                    if ((x ? lines.SnapXTick(ink, r.X) : lines.SnapYTick(ink, r.Y)) is not { } s) return t;
+                    var img = RawToImage(x ? new PxPoint(s, lines.Origin.Y) : new PxPoint(lines.Origin.X, s));
+                    var px = x ? img.X : img.Y;
+                    if (Math.Abs(px - t.Px) >= 1) how.Append($" The {(x ? "x" : "y")} tick at {t.Px:0} px was moved onto the tick mark at {px:0} px.");
+                    return t with { Px = px };
+                }
+                (AxisTick, AxisTick) Axis(List<AxisTick> given, bool x)
+                {
+                    var start = x ? origin.X : origin.Y;
+                    if (given.Count == 2) return (given[0], given[1]);
+                    if (given.Count == 1) return (new AxisTick(start, 0), Snapped(given[0], x));
+                    // No value on this axis: the sketch's largest x goes to the last tick mark (the labelled end of the range on a
+                    // sketch grid), else most of the way along the axis.
+                    var largest = points.Max(p => Math.Abs(x ? p.X : p.Y));
+                    if (x && lines.LastXTick(ink) is { } last)
+                    {
+                        var at = RawToImage(new PxPoint(last, lines.Origin.Y)).X;
+                        how.Append($" The x axis has no values: the sketch ends at its last tick mark ({at:0} px); pass x_ticks if the range ends elsewhere.");
+                        return (new AxisTick(start, 0), new AxisTick(at, largest > 0 ? largest : 1));
+                    }
+                    how.Append($" The {(x ? "x" : "y")} axis has no values, so the sketch is scaled to fit it.");
+                    return (new AxisTick(start, 0), new AxisTick(start + ((x ? xEnd : yEnd) - start) * FitFraction, largest > 0 ? largest : 1));
+                }
+                var (x0, x1) = Axis(xt, true);
+                var (y0, y1) = Axis(yt, false);
+                axes = new AxisCalibration(x0, x1, y0, y1);
+            }
+            if (axes.Problem() is { } problem) return ToolResult.Fail($"The axes cannot be read like that: {problem}. Nothing was drawn.");
+
+            var pixels = points.Select(p => axes.ToImage(p.X, p.Y)).ToList();
+            var image = screen.Geometry.ImageBounds;
+            if (pixels.Any(p => p.X < -2 || p.Y < -2 || p.X > image.Width + 2 || p.Y > image.Height + 2))
+                return ToolResult.Fail($"The sketch would leave the screenshot with these axes ({string.Join(" ", pixels.Select(p => $"({p.X:0},{p.Y:0})"))} px): check the points and the ticks. Nothing was drawn.");
+            if (args["smooth"]?.GetValueKind() == System.Text.Json.JsonValueKind.True && pixels.Count >= 3) pixels = CatmullRom(pixels);
+            var label = args["label"]?.GetValue<string>()?.Trim();
+            var mark = new Annotation
+            {
+                Kind = AnnotationKind.Path, Points = [.. pixels.Select(screen.Geometry.ImageToPhysical)], Color = AnnotationColors.Focus, StrokeWidth = 3,
+                Label = label is { Length: > 0 } ? label : null, Meaning = "sketched graph", Source = "tutor", Confidence = 1, Lifetime = TimeSpan.FromMinutes(10),
+            };
+            await OnUi(() =>
+            {
+                AppServices.Annotations.Add(mark);
+                AppServices.Overlays.WatchTutorMarks(monitor);
+                return true;
+            }).ConfigureAwait(false);
+            var id = MarkIds(turn).Next('a');
+            ((ConcurrentDictionary<string, Guid>)turn.State.GetOrAdd(MarksKey, _ => new ConcurrentDictionary<string, Guid>()))[id] = mark.Id;
+            string N(double v) => GraphArea.Number(Math.Round(v, 3));
+            return ToolResult.Ok($"{how}\nSketched {points.Count} points from ({N(points[0].X)}, {N(points[0].Y)}) to ({N(points[^1].X)}, {N(points[^1].Y)}): on the screen ({pixels[0].X:0}, {pixels[0].Y:0}) to ({pixels[^1].X:0}, {pixels[^1].Y:0}) px. Drawn as {id}.");
+        }
+
+        // A smooth curve through the points (Catmull–Rom): eight samples per segment.
+        private static List<PxPoint> CatmullRom(List<PxPoint> p)
+        {
+            var o = new List<PxPoint> { p[0] };
+            for (var i = 0; i < p.Count - 1; i++)
+            {
+                PxPoint a = p[Math.Max(0, i - 1)], b = p[i], c = p[i + 1], d = p[Math.Min(p.Count - 1, i + 2)];
+                for (var k = 1; k <= 8; k++)
+                {
+                    double t = k / 8.0, t2 = t * t, t3 = t2 * t;
+                    o.Add(new PxPoint(
+                        0.5 * (2 * b.X + (-a.X + c.X) * t + (2 * a.X - 5 * b.X + 4 * c.X - d.X) * t2 + (-a.X + 3 * b.X - 3 * c.X + d.X) * t3),
+                        0.5 * (2 * b.Y + (-a.Y + c.Y) * t + (2 * a.Y - 5 * b.Y + 4 * c.Y - d.Y) * t2 + (-a.Y + 3 * b.Y - 3 * c.Y + d.Y) * t3)));
+                }
+            }
+            return o;
+        }
+    }
+
+    // The screenshot's drawn lines, with the page brightness read inside the learner's window (not the whole monitor round it).
+    private static InkMap? InkOf(ToolTurn turn, CapturedFrame? frame)
+    {
+        if (frame?.Raw is not { } raw) return null;
+        var src = frame.Geometry.SourcePhysical;
+        PxRect? sample = null;
+        if (turn.State.TryGetValue(AskKey, out var a) && a is ScreenAsk { Foreground: not 0 } ask && Win32.WindowBounds(ask.Foreground) is { } w && src.Width > 0)
+            sample = new PxRect((w.X - src.X) * raw.Width / src.Width, (w.Y - src.Y) * raw.Height / src.Height, w.Width * raw.Width / src.Width, w.Height * raw.Height / src.Height);
+        return new InkMap(raw.Bgra, raw.Width, raw.Height, sample);
+    }
+
     private static FreeSpace FreeSpaceOf(ToolTurn turn, ScreenIndex screen, PxRect monitor)
     {
         var frame = (turn.State.TryGetValue(FullFrameKey, out var full) ? full : turn.State.GetValueOrDefault(FrameKey)) as CapturedFrame;
@@ -501,7 +658,7 @@ public static class ScreenTools
             "Draws a diagram of the problem on the learner's screen, on free space: seeing it is how problems about space, vectors, complex numbers and higher dimensions are understood. " +
             "kind space3d: points, vectors, lines, planes, segments in 3D (x right, y in, z up; 2D problems use z = 0). kind complex: numbers and circles on the Argand plane. kind hypercube: a cube or a tesseract (4D) for explaining dimensions above three by analogy. " +
             "Set measure and Vernier computes and draws the answer for you: skew_lines (the first two lines: shortest distance and the common perpendicular), point_plane (the first point and plane), angle (the first two vectors), cross_product (the first two vectors). Use the numbers it returns. " +
-            "kind forces: a free-body diagram: each force {type: force, a: [size, direction in degrees from +x anticlockwise; 270 = down], label}; angle = the incline's slope in degrees (0 = level); Vernier draws the body on its slope and adds the net force and its components along and across the slope. " +
+            "kind forces: a free-body diagram: each force {type: force, a: [size, direction in degrees from +x anticlockwise; 270 = down], label}; scene slope (a block; angle = the incline's slope in degrees, 0 = level), fluid (a ball in water: weight, drag, upthrust) or stacked (two blocks on level ground; on: 0 = bottom, 1 = top, so a friction pair is one force on each); bodies = names bottom first. Vernier adds the net force on each body (and its components along and across a slope). " +
             "Items: point {a}, vector {a: from, b: to}, line {a: point, b: direction, range: [t from, t to]}, plane {a: point, b: normal, range: [half size]}, segment {a, b}; complex: number {a: [re, im]}, circle {a: centre, b: [radius]}. label is a few characters (TeX is turned into symbols).",
             Schema(new JsonObject
             {
@@ -521,6 +678,7 @@ public static class ScreenTools
                             ["label"] = Str("A few characters, e.g. L₁, u×v, z.", 28),
                             ["tone"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("main", "result", "warn", "soft"), ["description"] = "main (blue, the subject), result (green), warn (red), soft (grey, helpers)." },
                             ["range"] = new JsonObject { ["type"] = "array", ["minItems"] = 1, ["maxItems"] = 2, ["items"] = new JsonObject { ["type"] = "number" } },
+                            ["on"] = new JsonObject { ["type"] = "integer", ["enum"] = new JsonArray(0, 1), ["description"] = "forces, scene stacked: the body the force acts on, 0 = bottom, 1 = top." },
                         },
                     },
                 },
@@ -528,6 +686,8 @@ public static class ScreenTools
                 ["note"] = Str("One short line under the diagram (words; TeX is turned into symbols).", 120),
                 ["dim"] = new JsonObject { ["type"] = "integer", ["enum"] = new JsonArray(3, 4), ["description"] = "hypercube: 3 for a cube, 4 for a tesseract." },
                 ["angle"] = new JsonObject { ["type"] = "number", ["description"] = "forces: the slope of the incline in degrees (0 = level). hypercube: rotation in the x–w plane; default 30." },
+                ["scene"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("slope", "fluid", "stacked"), ["description"] = "forces: slope (default), fluid or stacked." },
+                ["bodies"] = new JsonObject { ["type"] = "array", ["maxItems"] = 2, ["items"] = Str("A body's name, e.g. 5.0 kg.", 16), ["description"] = "forces: names of the bodies, bottom first." },
                 ["near"] = Target(),
                 ["side"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("auto", "right", "below", "left", "above") },
             }, "kind"),
@@ -545,13 +705,15 @@ public static class ScreenTools
                 number++;
                 var o = (JsonObject)node!;
                 double[]? Arr(string key) => (o[key] as JsonArray)?.Select(v => v?.GetValue<double>() ?? double.NaN).ToArray();
-                var item = new DiagramItem(o["type"]?.GetValue<string>() ?? "", Arr("a") ?? [], Arr("b"), DiagramBuilder.Text(o["label"]?.GetValue<string>()), o["tone"]?.GetValue<string>(), Arr("range"));
+                var item = new DiagramItem(o["type"]?.GetValue<string>() ?? "", Arr("a") ?? [], Arr("b"), DiagramBuilder.Text(o["label"]?.GetValue<string>()), o["tone"]?.GetValue<string>(), Arr("range"), o["on"]?.GetValue<int>() ?? 0);
                 if (kind != DiagramKind.Hypercube && DiagramBuilder.Problem(kind, item) is { } why) throw new ToolException($"Item {number} ({item.Type}): {why}.");
                 items.Add(item);
             }
             var caption = new List<string>();
             var report = new StringBuilder();
             var measure = args["measure"]?.GetValue<string>() ?? "none";
+            var scene = args["scene"]?.GetValue<string>() switch { "fluid" => ForceScene.Fluid, "stacked" => ForceScene.Stacked, _ => ForceScene.Slope };
+            var bodies = (args["bodies"] as JsonArray)?.Select(b => DiagramBuilder.Text(b?.GetValue<string>()) ?? "").ToList() ?? [];
             if (kind == DiagramKind.Space3D && measure != "none")
             {
                 DiagramItem[] Of(string type, int count) => items.Where(i => i.Type == type).Take(count).ToArray();
@@ -602,14 +764,24 @@ public static class ScreenTools
             if (kind == DiagramKind.Forces)
             {
                 if (items.Count == 0) throw new ToolException("A free-body diagram needs at least one force: {\"type\":\"force\",\"a\":[size, direction in degrees from +x, anticlockwise],\"label\":\"W = 14.7 N\"}.");
-                var slope = args["angle"]?.GetValue<double>() ?? 0;
-                var r = Geometry3D.Resultant(items.Select(i => (i.A[0], i.A[1])), slope);
+                var slope = scene == ForceScene.Slope ? args["angle"]?.GetValue<double>() ?? 0 : 0;
                 static string N(double v) => DiagramBuilder.Number(Math.Round(v, 3));
-                if (r.Size > 1e-6) items.Add(new DiagramItem("force", [r.Size, r.Direction], null, $"ΣF = {N(r.Size)}", "result"));
-                caption.Add(r.Size < 1e-6 ? "The forces balance: ΣF = 0 (equilibrium)." : $"Net force ΣF = {N(r.Size)} at {N(r.Direction)}° (components {N(r.Fx)}, {N(r.Fy)})");
-                if (Math.Abs(slope) > 0.5) caption.Add($"Along the slope (up): {N(r.Along)}; across it (out of the surface): {N(r.Across)}");
-                report.AppendLine($"Net force {Math.Round(r.Size, 4)} at {Math.Round(r.Direction, 2)}° from +x (Fx {Math.Round(r.Fx, 4)}, Fy {Math.Round(r.Fy, 4)})" +
-                                  (Math.Abs(slope) > 0.5 ? $"; along the slope (up) {Math.Round(r.Along, 4)}, across it {Math.Round(r.Across, 4)}." : "."));
+                var bodyCount = scene == ForceScene.Stacked ? 2 : 1;
+                if (scene != ForceScene.Stacked && items.Any(i => i.On != 0)) throw new ToolException("on is only for scene stacked (two blocks); leave it out for one body.");
+                foreach (var body in Enumerable.Range(0, bodyCount))
+                {
+                    var on = items.Where(i => i.On == body).ToList();
+                    var name = bodyCount == 1 ? "" : (bodies.Count > body && bodies[body].Length > 0 ? bodies[body] : body == 0 ? "bottom block" : "top block") + ": ";
+                    if (on.Count == 0) { caption.Add($"{name}no forces given."); continue; }
+                    var r = Geometry3D.Resultant(on.Select(i => (i.A[0], i.A[1])), slope);
+                    var balanced = r.Size <= 1e-6 * on.Max(i => i.A[0]); // relative: forces of 10⁻⁵ N are as real as forces of 10 N
+                    if (!balanced) items.Add(new DiagramItem("force", [r.Size, r.Direction], null, $"ΣF = {N(r.Size)}", "result", On: body));
+                    var net = balanced ? "the forces balance: ΣF = 0 (equilibrium)." : $"net force ΣF = {N(r.Size)} at {N(r.Direction)}° (components {N(r.Fx)}, {N(r.Fy)})";
+                    caption.Add(name.Length == 0 ? char.ToUpperInvariant(net[0]) + net[1..] : name + net);
+                    if (Math.Abs(slope) > 0.5) caption.Add($"Along the slope (up): {N(r.Along)}; across it (out of the surface): {N(r.Across)}");
+                    report.AppendLine($"{name}Net force {Math.Round(r.Size, 4)} at {Math.Round(r.Direction, 2)}° from +x (Fx {Math.Round(r.Fx, 4)}, Fy {Math.Round(r.Fy, 4)})" +
+                                      (Math.Abs(slope) > 0.5 ? $"; along the slope (up) {Math.Round(r.Along, 4)}, across it {Math.Round(r.Across, 4)}." : "."));
+                }
             }
             if (kind == DiagramKind.Hypercube)
                 caption.Add(args["dim"]?.GetValue<int>() == 4
@@ -618,7 +790,7 @@ public static class ScreenTools
             if (DiagramBuilder.Text(args["note"]?.GetValue<string>()) is { Length: > 0 } note) caption.Add(note);
 
             var spec = new DiagramSpec(kind, DiagramBuilder.Text(args["title"]?.GetValue<string>()) is { } t ? t : null, items, [.. caption.Take(DiagramBuilder.MaxCaption)],
-                args["dim"]?.GetValue<int>() == 4 ? 4 : 3, args["angle"]?.GetValue<double>() ?? (kind == DiagramKind.Forces ? 0 : 30));
+                args["dim"]?.GetValue<int>() == 4 ? 4 : 3, args["angle"]?.GetValue<double>() ?? (kind == DiagramKind.Forces ? 0 : 30), scene, bodies);
             PxRect? near = null;
             ResolvedTarget? nearTarget = null;
             if (args["near"] is JsonObject nearSpec) { nearTarget = Resolve(screen, nearSpec); near = nearTarget.Bounds; }
@@ -742,6 +914,7 @@ public static class ScreenTools
             var marks = (ConcurrentDictionary<string, Guid>)turn.State.GetOrAdd(MarksKey, _ => new ConcurrentDictionary<string, Guid>());
             var ids = (args["ids"] as JsonArray)?.Select(n => n?.GetValue<string>() ?? "").ToList();
             var guids = ids is null ? null : ids.Where(marks.ContainsKey).Select(i => marks[i]).ToHashSet();
+            if (guids is not null) await OnUi(() => { AppServices.Overlays.Forget(guids); return true; }).ConfigureAwait(false);
             var removed = await OnUi(() =>
             {
                 var before = AppServices.Annotations.Items.Count;

@@ -99,6 +99,24 @@ public static class DiagramRenderer
             dc.DrawText(t, origin);
         }
 
+        // A label just past an arrow's tip, on the line of the arrow, so it never sits on the arrow or on another label beside it.
+        // An arrow drawn beside a parallel one (shift ≠ 0) has its label beside its tip, on its own side, so the two labels do not stack.
+        private void Beyond(DrawingContext dc, string? text, Point tip, Vector dir, Color c, double size, double shift = 0)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var t = new FormattedText(TexPlain.Clean(text), CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, Face, size, Frozen(c), _dpi);
+            Point centre;
+            if (Math.Abs(shift) > 0.1)
+            {
+                var across = new Vector(-dir.Y, dir.X) * Math.Sign(shift);
+                centre = tip - dir * 8 + across * (Math.Abs(across.X) * (t.Width / 2 + 6) + Math.Abs(across.Y) * (t.Height / 2 + 4));
+            }
+            else centre = tip + dir * (Math.Abs(dir.X) * (t.Width / 2 + 5) + Math.Abs(dir.Y) * (t.Height / 2 + 3) + 4);
+            var origin = new Point(Math.Clamp(centre.X - t.Width / 2, 2, Math.Max(2, _w - t.Width - 2)), Math.Clamp(centre.Y - t.Height / 2, 1, Math.Max(1, _h - t.Height - 1)));
+            dc.DrawRoundedRectangle(Frozen(Color.FromArgb(205, 11, 18, 24)), null, new Rect(origin.X - 3, origin.Y - 1, t.Width + 6, t.Height + 2), 4, 4);
+            dc.DrawText(t, origin);
+        }
+
         private void Arrow(DrawingContext dc, Point from, Point to, Color c, double w = 2.2)
         {
             var dir = to - from;
@@ -253,8 +271,73 @@ public static class DiagramRenderer
             }
         }
 
-        // ---- a free-body diagram: the body on its slope, every force from its centre, lengths to scale ----
+        // ---- a free-body diagram: the body (or bodies) in its scene, every force from the centre of its body, lengths to scale ----
         private void DrawForces(DrawingContext dc)
+        {
+            if (_spec.Scene == ForceScene.Slope) { DrawSlope(dc); return; }
+            var forces = _spec.Items.Where(i => i.Type == "force").ToList();
+            var largest = Math.Max(1e-9, forces.Max(f => f.A[0]));
+            var fill = Frozen(Color.FromArgb(70, Palette.Soft.R, Palette.Soft.G, Palette.Soft.B));
+            var centres = new List<Point>();
+            double reach;
+            if (_spec.Scene == ForceScene.Fluid)
+            {
+                // A tank of water with the ball in it; forces from the ball's centre.
+                reach = Math.Min(_w, _h) * 0.36;
+                var tank = new Rect(_w * 0.2, _h * 0.08, _w * 0.6, _h * 0.86);
+                var water = new Rect(tank.X, tank.Y + tank.Height * 0.1, tank.Width, tank.Height * 0.9);
+                dc.DrawRectangle(Frozen(Color.FromArgb(46, Palette.Blue.R, Palette.Blue.G, Palette.Blue.B)), null, water);
+                dc.DrawLine(PenOf(Color.FromArgb(170, Palette.Blue.R, Palette.Blue.G, Palette.Blue.B), 1.4, true), water.TopLeft, water.TopRight);
+                dc.DrawLine(PenOf(Palette.Axis, 2), tank.TopLeft, tank.BottomLeft);
+                dc.DrawLine(PenOf(Palette.Axis, 2), tank.BottomLeft, tank.BottomRight);
+                dc.DrawLine(PenOf(Palette.Axis, 2), tank.BottomRight, tank.TopRight);
+                Text(dc, "water", new Point(water.X + 4, water.Y + 22), Palette.Soft, 12);
+                var c = new Point(_w / 2, water.Y + water.Height * 0.48);
+                dc.DrawEllipse(fill, PenOf(Palette.Soft, 1.6), c, 15, 15);
+                centres.Add(c);
+                Text(dc, _spec.Bodies is { Count: > 0 } b ? b[0] : null, c + new Vector(18, 22), Palette.Soft, 12);
+            }
+            else
+            {
+                // Two blocks on level ground: the wide one at the bottom, the narrow one on top; the floor under both.
+                reach = Math.Min(_w, _h) * 0.30;
+                var floorY = _h * 0.80;
+                dc.DrawLine(PenOf(Palette.Axis, 2), new Point(_w * 0.06, floorY), new Point(_w * 0.94, floorY));
+                var bottom = new Rect(_w / 2 - 66, floorY - 48, 132, 48);
+                var top = new Rect(_w / 2 - 42, bottom.Y - 40, 84, 40);
+                foreach (var (r, i) in new[] { (bottom, 0), (top, 1) })
+                {
+                    dc.DrawRoundedRectangle(fill, PenOf(Palette.Soft, 1.6), r, 5, 5);
+                    centres.Add(new Point(r.X + r.Width / 2, r.Y + r.Height / 2));
+                    // The name inside the block's lower half, under the forces drawn from its centre.
+                    if (_spec.Bodies is { } names && names.Count > i && names[i].Length > 0)
+                    {
+                        var t = new FormattedText(names[i], CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, Face, 11, Frozen(Palette.Ink), _dpi);
+                        dc.DrawText(t, new Point(r.X + 6, r.Bottom - t.Height - 2));
+                    }
+                }
+            }
+            // Forces on one body pointing the same way (drag and upthrust, say) are drawn side by side, not on top of each other.
+            var shift = new double[forces.Count];
+            foreach (var g in Enumerable.Range(0, forces.Count).GroupBy(i => (Math.Clamp(forces[i].On, 0, centres.Count - 1), (int)Math.Round(((forces[i].A[1] % 360) + 360) % 360 / 10.0) % 36)))
+            {
+                var same = g.ToList();
+                for (var k = 0; k < same.Count; k++) shift[same[k]] = (k - (same.Count - 1) / 2.0) * 16;
+            }
+            for (var i = 0; i < forces.Count; i++)
+            {
+                var f = forces[i];
+                var dir = new Vector(Math.Cos(f.A[1] * Math.PI / 180), -Math.Sin(f.A[1] * Math.PI / 180));
+                var c = centres[Math.Clamp(f.On, 0, centres.Count - 1)] + new Vector(-dir.Y, dir.X) * shift[i];
+                var tip = c + dir * Math.Max(40, reach * f.A[0] / largest);
+                var tone = Palette.Tone(f.Tone);
+                Arrow(dc, c, tip, tone, f.Tone == "result" ? 2.8 : 2.2);
+                Beyond(dc, f.Label, tip, dir, tone, 13, shift[i]);
+            }
+            foreach (var c in centres) dc.DrawEllipse(Frozen(Palette.Ink), null, c, 2.6, 2.6);
+        }
+
+        private void DrawSlope(DrawingContext dc)
         {
             var forces = _spec.Items.Where(i => i.Type == "force").ToList();
             var largest = Math.Max(1e-9, forces.Max(f => f.A[0]));

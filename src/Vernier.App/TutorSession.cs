@@ -539,12 +539,14 @@ public sealed class TutorSession
         "overlay_write" => "writing on the screen",
         "session_recall" => "recalling earlier in the session",
         "computer_act" => "operating the application",
+        "write_to_app" => "writing into the application",
         "overlay_clear" => "clearing marks",
         "look" => "looking closer",
         "find_on_screen" => "finding it on screen",
         "web_research" => "researching on the web",
         "overlay_diagram" => "drawing a diagram",
         "graph_area" => "measuring the area on the graph",
+        "graph_sketch" => "sketching the graph",
         _ => "using " + tool,
     };
 

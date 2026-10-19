@@ -107,7 +107,7 @@ public sealed class SendInputDriver(nint targetWindow) : IInputDriver
     }
 
     // Fails closed: when the focused field cannot be inspected, it is treated as a password field and nothing is typed.
-    private static bool FocusIsPassword()
+    internal static bool FocusIsPassword()
     {
         try { return AutomationElement.FocusedElement is not { } focus || focus.Current.IsPassword; }
         catch (Exception e) when (e is ElementNotAvailableException or InvalidOperationException or COMException) { return true; }

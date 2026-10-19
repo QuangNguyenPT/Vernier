@@ -21,7 +21,7 @@ public sealed class McpServer : IAsyncDisposable
     public const string ServerName = "vernier";
     private static readonly string[] Versions = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
     private readonly ToolExecutor _executor;
-    private readonly HttpListener _listener = new();
+    private readonly HttpListener _listener;
     private readonly ConcurrentDictionary<string, ToolTurn> _turns = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _loop;
@@ -35,11 +35,12 @@ public sealed class McpServer : IAsyncDisposable
         var random = new Random();
         for (var attempt = 0; ; attempt++)
         {
+            // A listener whose Start failed (the port was taken) has disposed itself: each attempt needs a new one.
+            var listener = new HttpListener();
             Port = random.Next(49152, 65500);
-            _listener.Prefixes.Clear();
-            _listener.Prefixes.Add($"http://127.0.0.1:{Port}/{PathSegment}/");
-            try { _listener.Start(); break; }
-            catch (HttpListenerException) when (attempt < 20) { }
+            listener.Prefixes.Add($"http://127.0.0.1:{Port}/{PathSegment}/");
+            try { listener.Start(); _listener = listener; break; }
+            catch (HttpListenerException) when (attempt < 20) { listener.Close(); }
         }
         _loop = Task.Run(AcceptAsync);
     }

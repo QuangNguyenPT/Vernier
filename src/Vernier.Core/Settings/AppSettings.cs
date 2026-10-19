@@ -100,6 +100,9 @@ public sealed class AppSettings
     /// <summary>The learner has seen the context notice (first run, or after upgrading to a build with the context engine).</summary>
     public bool ContextNoticeShown { get; set; }
     public int ContextRetentionDays { get; set; } = 14;
+    /// <summary>Ask bar width and answer maximum height in DIPs, as the learner dragged them. Null: the default size.</summary>
+    public double? AskBarWidth { get; set; }
+    public double? AskBarAnswerHeight { get; set; }
     /// <summary>Apps never recorded, by process name (in addition to private windows and password managers).</summary>
     public List<string> ContextExcludedApps { get; set; } = [];
     /// <summary>Optional model that writes a one-line summary of an episode when it ends. Null: summaries are built by code only.</summary>
